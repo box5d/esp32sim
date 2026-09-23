@@ -236,7 +236,8 @@
     }
 
     // 2. WebSocket Connection to esp32sim (port 8088)
-    const host = location.hostname || '127.0.0.1';
+    const rawHost = location.hostname || '127.0.0.1';
+    const host = (rawHost === 'localhost') ? '127.0.0.1' : rawHost;
     const wsUrl = `ws://${host}:8088/ws`;
     let ws = null;
     let txFrames = 0;
@@ -453,8 +454,29 @@
       const ctx = c.getContext('2d');
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.fillRect(0, 0, 160, 120);
-      sendFrameFromCanvas(c);
-      log(`単色フレーム送信: RGB(${r}, ${g}, ${b})`);
+
+      // Card 1 にもプレビュー表示
+      const fc = $('fallbackCanvas');
+      fc.width = 160; fc.height = 120;
+      fc.getContext('2d').drawImage(c, 0, 0);
+      fc.style.display = 'block';
+      $('webcam').style.display = 'none';
+
+      // FreeRTOS タスクが確実にキャッチできるよう5フレーム連続送信
+      let sentCount = 0;
+      const timer = setInterval(() => {
+        const ok = sendFrameFromCanvas(c);
+        if (!ok) {
+          clearInterval(timer);
+          log(`送信失敗: WebSocket未接続 (readyState: ${ws ? ws.readyState : 'null'})`);
+          return;
+        }
+        sentCount++;
+        if (sentCount >= 5) {
+          clearInterval(timer);
+          log(`単色フレーム送信完了 (5フレーム): RGB(${r}, ${g}, ${b})`);
+        }
+      }, 50);
     }
     $('btnPatternRed').onclick = () => injectSolidColor(255, 0, 0);
     $('btnPatternGreen').onclick = () => injectSolidColor(0, 255, 0);
