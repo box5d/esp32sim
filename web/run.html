@@ -396,9 +396,9 @@ $('#camwebcam').onclick = async () => {
       audio: false
     });
   } catch (e) { $('#camstat').textContent = 'webcam: ' + e.message; return; }
-  const v = $('#camvideo'); v.srcObject = camStream; $('#camwebcam').style.display = 'none'; $('#camstop').style.display = '';
-  camTimer = setInterval(() => { if (v.videoWidth) { camCtx.drawImage(v, 0, 0, camCanvas.width, camCanvas.height); sendCamFrame(); $('#camstat').textContent = 'webcam live'; } }, 150);
+  const v = $('#camvideo'); v.srcObject = camStream; v.style.display = 'block'; v.style.maxWidth = '320px'; v.style.borderRadius = '6px'; v.style.marginTop = '6px'; $('#camwebcam').style.display = 'none'; $('#camstop').style.display = '';
+  camTimer = setInterval(() => { if (v.videoWidth) { camCtx.drawImage(v, 0, 0, camCanvas.width, camCanvas.height); sendCamFrame(); $('#camstat').textContent = 'webcam live'; } }, 100);
 };
-$('#camstop').onclick = () => { clearInterval(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('#camwebcam').style.display = ''; $('#camstop').style.display = 'none'; $('#camstat').textContent = 'webcam stopped (last frame stays)'; };
+$('#camstop').onclick = () => { clearInterval(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; $('#camvideo').style.display = 'none'; $('#camwebcam').style.display = ''; $('#camstop').style.display = 'none'; $('#camstat').textContent = 'webcam stopped (last frame stays)'; };
 </script>
 </body></html>

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CoreS3 Camera Link Test · M5Stack Emulator</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; text-align: center; }
+    .status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      max-width: 700px;
+      width: 100%;
+    }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: var(--border);
+      color: var(--text-muted);
+    }
+    .badge.active { background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
+    .badge.error { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
+    .badge.warn { background: #78350f; color: #fde68a; border: 1px solid #d97706; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+      max-width: 700px;
+      width: 100%;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--accent);
+      align-self: flex-start;
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .video-wrap {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      border: 1px solid var(--border);
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+    }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      width: 100%;
+    }
+    button, label.btn-file {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #334155;
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    button:hover, label.btn-file:hover { background: #475569; }
+    button.primary { background: #0284c7; border-color: #0ea5e9; }
+    button.primary:hover { background: #0369a1; }
+    button.danger { background: #b91c1c; border-color: #ef4444; }
+    button.danger:hover { background: #991b1b; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    input[type="file"] { display: none; }
+    .notice {
+      background: #1e1b4b;
+      border: 1px solid #4338ca;
+      color: #c7d2fe;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      font-size: 0.75rem;
+      line-height: 1.4;
+      max-width: 700px;
+      width: 100%;
+    }
+    .notice.warn {
+      background: #451a03;
+      border-color: #b45309;
+      color: #fde68a;
+    }
+    #logBox {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      font-size: 0.7rem;
+      color: #a5f3fc;
+      width: 100%;
+      max-width: 700px;
+      height: 90px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>CoreS3 カメラ連動・単体検証テスト</h1>
+
+  <div class="status-bar">
+    <span class="badge" id="badgeWs">WS: 切断</span>
+    <span class="badge" id="badgeCamera">カメラ: 停止中</span>
+    <span class="badge" id="badgeContext">Context: 調査中</span>
+    <span class="badge" id="badgeTx">TX: 0 frames</span>
+    <span class="badge" id="badgeRx">RX: 0 frames</span>
+  </div>
+
+  <div class="notice" id="contextNotice" style="display:none;"></div>
+
+  <div class="grid">
+    <!-- Card 1: Smartphone Camera -->
+    <div class="card">
+      <div class="card-title">
+        <span>1. スマホカメラ入力 (160x120 送信)</span>
+        <span id="camFps" style="font-size:0.75rem;color:var(--text-muted);">0 fps</span>
+      </div>
+      <div class="video-wrap">
+        <video id="webcam" playsinline autoplay muted></video>
+        <canvas id="fallbackCanvas" style="display:none;"></canvas>
+      </div>
+      <div class="btn-row">
+        <button id="btnStartCam" class="primary">カメラ起動</button>
+        <button id="btnStopCam">停止</button>
+        <label class="btn-file" title="HTTP環境用の1枚写真送信">
+          写真撮影/選択
+          <input type="file" id="filePhoto" accept="image/*" capture="environment">
+        </label>
+      </div>
+      <div class="btn-row">
+        <button id="btnPatternRed">赤フレーム送信</button>
+        <button id="btnPatternGreen">緑フレーム送信</button>
+        <button id="btnPatternBlue">青フレーム送信</button>
+      </div>
+    </div>
+
+    <!-- Card 2: CoreS3 Screen -->
+    <div class="card">
+      <div class="card-title">
+        <span>2. CoreS3 液晶画面 (実機描画)</span>
+        <span id="lcdFps" style="font-size:0.75rem;color:var(--text-muted);">タップ操作可</span>
+      </div>
+      <div class="video-wrap">
+        <canvas id="lcdCanvas" width="320" height="240"></canvas>
+      </div>
+      <div class="btn-row">
+        <button id="btnAutoAppCamera" class="primary" title="スプラッシュ解除→AppCameraへ自動遷移">AppCamera 自動起動</button>
+        <button id="btnHomeTouch">HomeMenu 戻る</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="logBox">ログ初期化完了</div>
+
+  <!-- Offscreen 160x120 packet canvas -->
+  <canvas id="packetCanvas" width="160" height="120" style="display:none;"></canvas>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const logBox = $('logBox');
+    function log(msg) {
+      const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logBox.textContent = line + '\n' + logBox.textContent.slice(0, 2000);
+    }
+
+    // 1. Secure context check
+    const isSecure = window.isSecureContext;
+    $('badgeContext').textContent = isSecure ? 'Context: Secure (OK)' : 'Context: Insecure (HTTP)';
+    $('badgeContext').className = isSecure ? 'badge active' : 'badge warn';
+    if (!isSecure) {
+      const n = $('contextNotice');
+      n.style.display = 'block';
+      n.className = 'notice warn';
+      n.innerHTML = '注意: 非localhostのHTTP環境のため、ブラウザ仕様によりカメラの連続ストリーミングがブロックされます。<br>「写真撮影/選択」ボタンを使うか、Chromeの <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> に本URLを登録するか、localhostで開いてください。';
+    }
+
+    // 2. WebSocket Connection to esp32sim (port 8088)
+    const host = location.hostname || '127.0.0.1';
+    const wsUrl = `ws://${host}:8088/ws`;
+    let ws = null;
+    let txFrames = 0;
+    let rxFrames = 0;
+    let lastRxTime = performance.now();
+    let rxCountSec = 0;
+
+    function connectWs() {
+      log(`WebSocket接続試行: ${wsUrl}`);
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        $('badgeWs').textContent = 'WS: 接続完了';
+        $('badgeWs').className = 'badge active';
+        log('CoreS3エミュレータ (port 8088) に接続しました');
+      };
+
+      ws.onclose = () => {
+        $('badgeWs').textContent = 'WS: 切断中 (再試行中)';
+        $('badgeWs').className = 'badge error';
+        setTimeout(connectWs, 2000);
+      };
+
+      ws.onerror = (e) => {
+        log('WebSocket エラー');
+      };
+
+      ws.onmessage = (ev) => {
+        if (ev.data instanceof ArrayBuffer) {
+          const u8 = new Uint8Array(ev.data);
+          const type = u8[0];
+          if (type === 1) { // LCD Frame (RGB565)
+            drawLcdFrame(ev.data);
+            rxFrames++;
+            rxCountSec++;
+            $('badgeRx').textContent = `RX: ${rxFrames} frames`;
+          } else if (type === 4) { // Camera ACK Preview
+            log(`エミュレータがカメラフレームを受信完了 (Type 4 ACK)`);
+          }
+        } else if (typeof ev.data === 'string') {
+          try {
+            const m = JSON.parse(ev.data);
+            if (m.t === 'serial' && m.data && m.data.includes('AppCamera')) {
+              log(`シリアル検知: ${m.data.trim()}`);
+            }
+          } catch (e) {}
+        }
+      };
+    }
+    connectWs();
+
+    // FPS counter for LCD
+    setInterval(() => {
+      $('lcdFps').textContent = `${rxCountSec} fps (LCD)`;
+      rxCountSec = 0;
+    }, 1000);
+
+    // 3. LCD Rendering
+    const lcdCanvas = $('lcdCanvas');
+    const lcdCtx = lcdCanvas.getContext('2d', { willReadFrequently: true });
+    function drawLcdFrame(buf) {
+      const dv = new DataView(buf);
+      const w = dv.getUint16(1, true);
+      const h = dv.getUint16(3, true);
+      if (w === 0 || h === 0 || buf.byteLength < 5 + w * h * 2) return;
+      if (lcdCanvas.width !== w || lcdCanvas.height !== h) {
+        lcdCanvas.width = w;
+        lcdCanvas.height = h;
+      }
+      const img = lcdCtx.createImageData(w, h);
+      const d = img.data;
+      for (let i = 0; i < w * h; i++) {
+        const p = dv.getUint16(5 + i * 2, true);
+        const r = (p >> 11) * 255 / 31;
+        const g = ((p >> 5) & 63) * 255 / 63;
+        const b = (p & 31) * 255 / 31;
+        const idx = i * 4;
+        d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
+      }
+      lcdCtx.putImageData(img, 0, 0);
+    }
+
+    // Touch on LCD Canvas
+    function sendTouch(x, y, down) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ t: 'touch', x: Math.round(x), y: Math.round(y), down: down ? 1 : 0 }));
+      }
+    }
+    lcdCanvas.addEventListener('pointerdown', (e) => {
+      const r = lcdCanvas.getBoundingClientRect();
+      const x = (e.clientX - r.left) * (lcdCanvas.width / r.width);
+      const y = (e.clientY - r.top) * (lcdCanvas.height / r.height);
+      sendTouch(x, y, true);
+    });
+    lcdCanvas.addEventListener('pointerup', () => sendTouch(0, 0, false));
+
+    // Auto-AppCamera button
+    $('btnAutoAppCamera').onclick = async () => {
+      log('自動遷移: スプラッシュ解除タッチ (90, 80)...');
+      sendTouch(90, 80, true);
+      await new Promise(r => setTimeout(r, 200));
+      sendTouch(90, 80, false);
+      await new Promise(r => setTimeout(r, 800));
+      log('自動遷移: AppCameraタッチ (110, 80)...');
+      sendTouch(110, 80, true);
+      await new Promise(r => setTimeout(r, 200));
+      sendTouch(110, 80, false);
+    };
+
+    $('btnHomeTouch').onclick = async () => {
+      sendTouch(40, 40, true);
+      await new Promise(r => setTimeout(r, 150));
+      sendTouch(40, 40, false);
+    };
+
+    // 4. Camera Stream Handling
+    const video = $('webcam');
+    const packetCanvas = $('packetCanvas');
+    const pCtx = packetCanvas.getContext('2d', { willReadFrequently: true });
+    let mediaStream = null;
+    let streamInterval = null;
+    let txCountSec = 0;
+
+    function sendFrameFromCanvas(sourceCanvas) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      if (ws.bufferedAmount > 160 * 120 * 4 * 2) return false;
+      pCtx.drawImage(sourceCanvas, 0, 0, 160, 120);
+      const imgData = pCtx.getImageData(0, 0, 160, 120);
+      const pkt = new Uint8Array(5 + imgData.data.length);
+      pkt[0] = 3;
+      pkt[1] = 160; pkt[2] = 0;
+      pkt[3] = 120; pkt[4] = 0;
+      pkt.set(imgData.data, 5);
+      ws.send(pkt.buffer);
+      txFrames++;
+      txCountSec++;
+      $('badgeTx').textContent = `TX: ${txFrames} frames`;
+      return true;
+    }
+
+    $('btnStartCam').onclick = async () => {
+      if (!isSecure) {
+        log('HTTP環境ではカメラAPIが拒否されます。「写真撮影/選択」を使用してください');
+        $('filePhoto').click();
+        return;
+      }
+      try {
+        log('カメラ起動リクエスト (facingMode: environment)...');
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: { ideal: 'environment' } },
+          audio: false
+        });
+        video.srcObject = mediaStream;
+        await video.play();
+        $('badgeCamera').textContent = 'カメラ: 配信中 (15fps)';
+        $('badgeCamera').className = 'badge active';
+        log('カメラストリーミング開始 (15fps)');
+
+        if (streamInterval) clearInterval(streamInterval);
+        streamInterval = setInterval(() => {
+          if (video.videoWidth > 0) {
+            sendFrameFromCanvas(video);
+          }
+        }, 66);
+      } catch (err) {
+        log(`カメラ起動失敗: ${err.name} - ${err.message}`);
+        $('badgeCamera').textContent = `カメラエラー: ${err.name}`;
+        $('badgeCamera').className = 'badge error';
+      }
+    };
+
+    $('btnStopCam').onclick = () => {
+      if (streamInterval) clearInterval(streamInterval);
+      streamInterval = null;
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      video.srcObject = null;
+      $('badgeCamera').textContent = 'カメラ: 停止中';
+      $('badgeCamera').className = 'badge';
+      log('カメラ停止');
+    };
+
+    setInterval(() => {
+      $('camFps').textContent = `${txCountSec} fps (TX)`;
+      txCountSec = 0;
+    }, 1000);
+
+    // Single Photo capture
+    $('filePhoto').onchange = (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const im = new Image();
+      const url = URL.createObjectURL(file);
+      im.onload = () => {
+        const fc = $('fallbackCanvas');
+        fc.width = im.width; fc.height = im.height;
+        fc.getContext('2d').drawImage(im, 0, 0);
+        sendFrameFromCanvas(fc);
+        URL.revokeObjectURL(url);
+        log(`写真送信完了 (${im.width}x${im.height} -> 160x120)`);
+        $('badgeCamera').textContent = 'カメラ: 写真送信完了';
+        $('badgeCamera').className = 'badge active';
+      };
+      im.src = url;
+    };
+
+    // Color pattern injectors (Testing without hardware camera)
+    function injectSolidColor(r, g, b) {
+      const c = document.createElement('canvas');
+      c.width = 160; c.height = 120;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(0, 0, 160, 120);
+      sendFrameFromCanvas(c);
+      log(`単色フレーム送信: RGB(${r}, ${g}, ${b})`);
+    }
+    $('btnPatternRed').onclick = () => injectSolidColor(255, 0, 0);
+    $('btnPatternGreen').onclick = () => injectSolidColor(0, 255, 0);
+    $('btnPatternBlue').onclick = () => injectSolidColor(0, 0, 255);
+  </script>
+</body>
+</html>
