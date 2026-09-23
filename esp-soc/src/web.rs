@@ -76,7 +76,11 @@ fn frame(opcode: u8, data: &[u8]) -> Vec<u8> {
 
 impl WebServer {
     pub fn start(port: u16, web_dir: String) -> std::io::Result<WebServer> {
-        let listener = TcpListener::bind(("127.0.0.1", port))?;
+        // Loopback remains the safe default. Board launchers that intentionally
+        // serve a UI to another device can opt into a LAN address.
+        let bind_addr = std::env::var("ESP_EMU_WEB_BIND")
+            .unwrap_or_else(|_| "127.0.0.1".to_string());
+        let listener = TcpListener::bind((bind_addr.as_str(), port))?;
         let shared = Arc::new(Mutex::new(Shared { queue: false, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir, hello: Vec::new() }));
         let s2 = shared.clone();
         std::thread::spawn(move || {
@@ -171,7 +175,15 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
             8 => break,
             9 => {}
             1 => { shared.lock().unwrap().incoming.push_back(String::from_utf8_lossy(&data).to_string()); }
-            2 => { let mut sh = shared.lock().unwrap(); if sh.incoming_bin.len() < 4 { sh.incoming_bin.push_back(data); } }
+            2 => {
+                let mut sh = shared.lock().unwrap();
+                if !data.is_empty() && data[0] == 3 {
+                    sh.incoming_bin.retain(|b| b.is_empty() || b[0] != 3);
+                    sh.incoming_bin.push_back(data);
+                } else if sh.incoming_bin.len() < 4 {
+                    sh.incoming_bin.push_back(data);
+                }
+            }
             _ => {}
         }
     }

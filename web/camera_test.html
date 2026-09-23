@@ -34,7 +34,7 @@
       flex-wrap: wrap;
       gap: 8px;
       justify-content: center;
-      max-width: 700px;
+      max-width: 720px;
       width: 100%;
     }
     .badge {
@@ -48,12 +48,15 @@
     .badge.active { background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
     .badge.error { background: #7f1d1d; color: #fca5a5; border: 1px solid #dc2626; }
     .badge.warn { background: #78350f; color: #fde68a; border: 1px solid #d97706; }
+    .badge.red { background: #7f1d1d; color: #fca5a5; border: 1px solid #ef4444; }
+    .badge.green { background: #064e3b; color: #6ee7b7; border: 1px solid #22c55e; }
+    .badge.blue { background: #1e3a8a; color: #93c5fd; border: 1px solid #3b82f6; }
 
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
       gap: 16px;
-      max-width: 700px;
+      max-width: 720px;
       width: 100%;
     }
     .card {
@@ -133,7 +136,7 @@
       border-radius: var(--radius);
       font-size: 0.75rem;
       line-height: 1.4;
-      max-width: 700px;
+      max-width: 720px;
       width: 100%;
     }
     .notice.warn {
@@ -149,8 +152,8 @@
       font-size: 0.7rem;
       color: #a5f3fc;
       width: 100%;
-      max-width: 700px;
-      height: 90px;
+      max-width: 720px;
+      height: 100px;
       overflow-y: auto;
       white-space: pre-wrap;
     }
@@ -160,11 +163,12 @@
   <h1>CoreS3 カメラ連動・単体検証テスト</h1>
 
   <div class="status-bar">
-    <span class="badge" id="badgeWs">WS: 切断</span>
+    <span class="badge" id="badgeWs">WS: 接続中...</span>
+    <span class="badge" id="badgeApp">App: 検出中</span>
+    <span class="badge" id="badgeColor">LCD表示: 初期化中</span>
     <span class="badge" id="badgeCamera">カメラ: 停止中</span>
-    <span class="badge" id="badgeContext">Context: 調査中</span>
-    <span class="badge" id="badgeTx">TX: 0 frames</span>
-    <span class="badge" id="badgeRx">RX: 0 frames</span>
+    <span class="badge" id="badgeTx">TX: 0</span>
+    <span class="badge" id="badgeRx">RX: 0</span>
   </div>
 
   <div class="notice" id="contextNotice" style="display:none;"></div>
@@ -173,7 +177,7 @@
     <!-- Card 1: Smartphone Camera -->
     <div class="card">
       <div class="card-title">
-        <span>1. スマホカメラ入力 (160x120 送信)</span>
+        <span>1. 入力映像 (160x120 送信)</span>
         <span id="camFps" style="font-size:0.75rem;color:var(--text-muted);">0 fps</span>
       </div>
       <div class="video-wrap">
@@ -189,9 +193,9 @@
         </label>
       </div>
       <div class="btn-row">
-        <button id="btnPatternRed">赤フレーム送信</button>
-        <button id="btnPatternGreen">緑フレーム送信</button>
-        <button id="btnPatternBlue">青フレーム送信</button>
+        <button id="btnPatternRed" style="border-color:#ef4444;">赤フレーム送信</button>
+        <button id="btnPatternGreen" style="border-color:#22c55e;">緑フレーム送信</button>
+        <button id="btnPatternBlue" style="border-color:#3b82f6;">青フレーム送信</button>
       </div>
     </div>
 
@@ -207,6 +211,7 @@
       <div class="btn-row">
         <button id="btnAutoAppCamera" class="primary" title="スプラッシュ解除→AppCameraへ自動遷移">AppCamera 自動起動</button>
         <button id="btnHomeTouch">HomeMenu 戻る</button>
+        <button id="btnStartEmu" style="display:none;">エミュレータ起動</button>
       </div>
     </div>
   </div>
@@ -221,19 +226,21 @@
     const logBox = $('logBox');
     function log(msg) {
       const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
-      logBox.textContent = line + '\n' + logBox.textContent.slice(0, 2000);
+      logBox.textContent = line + '\n' + logBox.textContent.slice(0, 3000);
     }
 
     // 1. Secure context check
     const isSecure = window.isSecureContext;
-    $('badgeContext').textContent = isSecure ? 'Context: Secure (OK)' : 'Context: Insecure (HTTP)';
-    $('badgeContext').className = isSecure ? 'badge active' : 'badge warn';
     if (!isSecure) {
       const n = $('contextNotice');
       n.style.display = 'block';
       n.className = 'notice warn';
-      n.innerHTML = '注意: 非localhostのHTTP環境のため、ブラウザ仕様によりカメラの連続ストリーミングがブロックされます。<br>「写真撮影/選択」ボタンを使うか、Chromeの <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> に本URLを登録するか、localhostで開いてください。';
+      n.innerHTML = '注意: 非localhostのHTTP環境のためブラウザ仕様によりカメラの連続ストリーミングが制限されます。<br>「写真撮影/選択」を使用するか、下の「赤/緑/青フレーム送信」で検証してください。';
     }
+
+    // State tracking
+    let currentApp = 'Unknown';
+    let isAppCamera = false;
 
     // 2. WebSocket Connection to esp32sim (port 8088)
     const rawHost = location.hostname || '127.0.0.1';
@@ -242,7 +249,6 @@
     let ws = null;
     let txFrames = 0;
     let rxFrames = 0;
-    let lastRxTime = performance.now();
     let rxCountSec = 0;
 
     function connectWs() {
@@ -253,12 +259,14 @@
       ws.onopen = () => {
         $('badgeWs').textContent = 'WS: 接続完了';
         $('badgeWs').className = 'badge active';
+        $('btnStartEmu').style.display = 'none';
         log('CoreS3エミュレータ (port 8088) に接続しました');
       };
 
       ws.onclose = () => {
-        $('badgeWs').textContent = 'WS: 切断中 (再試行中)';
+        $('badgeWs').textContent = 'WS: 切断中';
         $('badgeWs').className = 'badge error';
+        $('btnStartEmu').style.display = 'inline-block';
         setTimeout(connectWs, 2000);
       };
 
@@ -274,15 +282,27 @@
             drawLcdFrame(ev.data);
             rxFrames++;
             rxCountSec++;
-            $('badgeRx').textContent = `RX: ${rxFrames} frames`;
+            $('badgeRx').textContent = `RX: ${rxFrames}`;
           } else if (type === 4) { // Camera ACK Preview
-            log(`エミュレータがカメラフレームを受信完了 (Type 4 ACK)`);
+            // log('エミュレータ受領 (Type 4 ACK)');
           }
         } else if (typeof ev.data === 'string') {
           try {
             const m = JSON.parse(ev.data);
-            if (m.t === 'serial' && m.data && m.data.includes('AppCamera')) {
-              log(`シリアル検知: ${m.data.trim()}`);
+            if (m.t === 'serial' && m.data) {
+              const s = m.data.trim();
+              if (s.includes('AppCamera')) {
+                currentApp = 'AppCamera';
+                isAppCamera = true;
+                $('badgeApp').textContent = 'App: AppCamera (待受中)';
+                $('badgeApp').className = 'badge active';
+                log(`アプリ状態: AppCamera 起動検知`);
+              } else if (s.includes('HomeMenu')) {
+                currentApp = 'HomeMenu';
+                isAppCamera = false;
+                $('badgeApp').textContent = 'App: HomeMenu';
+                $('badgeApp').className = 'badge warn';
+              }
             }
           } catch (e) {}
         }
@@ -290,13 +310,32 @@
     }
     connectWs();
 
+    // Start Emulator API button
+    $('btnStartEmu').onclick = async () => {
+      log('エミュレータ起動リクエスト送信中...');
+      try {
+        const res = await fetch('/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'cores3_start',
+            bin_path: '/data/data/com.termux/files/home/tmp/firmware/cores3-userdemo.v0-12.bin'
+          })
+        });
+        const data = await res.json();
+        log(`起動レスポンス: ${data.status}`);
+      } catch (err) {
+        log(`起動APIエラー: ${err.message}`);
+      }
+    };
+
     // FPS counter for LCD
     setInterval(() => {
       $('lcdFps').textContent = `${rxCountSec} fps (LCD)`;
       rxCountSec = 0;
     }, 1000);
 
-    // 3. LCD Rendering
+    // 3. LCD Rendering and Realtime Pixel Color Analysis
     const lcdCanvas = $('lcdCanvas');
     const lcdCtx = lcdCanvas.getContext('2d', { willReadFrequently: true });
     function drawLcdFrame(buf) {
@@ -310,15 +349,46 @@
       }
       const img = lcdCtx.createImageData(w, h);
       const d = img.data;
+
+      let redCount = 0;
+      let greenCount = 0;
+      let blueCount = 0;
+
       for (let i = 0; i < w * h; i++) {
         const p = dv.getUint16(5 + i * 2, true);
-        const r = (p >> 11) * 255 / 31;
-        const g = ((p >> 5) & 63) * 255 / 63;
-        const b = (p & 31) * 255 / 31;
+        const r5 = (p >> 11) & 0x1f;
+        const g6 = (p >> 5) & 0x3f;
+        const b5 = p & 0x1f;
+
+        if (r5 >= 26 && g6 <= 4 && b5 <= 4) redCount++;
+        else if (g6 >= 55 && r5 <= 4 && b5 <= 4) greenCount++;
+        else if (b5 >= 26 && r5 <= 4 && g6 <= 4) blueCount++;
+
         const idx = i * 4;
-        d[idx] = r; d[idx + 1] = g; d[idx + 2] = b; d[idx + 3] = 255;
+        d[idx] = (r5 * 255 / 31) | 0;
+        d[idx + 1] = (g6 * 255 / 63) | 0;
+        d[idx + 2] = (b5 * 255 / 31) | 0;
+        d[idx + 3] = 255;
       }
       lcdCtx.putImageData(img, 0, 0);
+
+      // Color Badge update
+      if (redCount >= 15000) {
+        $('badgeColor').textContent = `LCD: 赤表示中 (${redCount}px)`;
+        $('badgeColor').className = 'badge red';
+        isAppCamera = true;
+      } else if (greenCount >= 15000) {
+        $('badgeColor').textContent = `LCD: 緑表示中 (${greenCount}px)`;
+        $('badgeColor').className = 'badge green';
+        isAppCamera = true;
+      } else if (blueCount >= 15000) {
+        $('badgeColor').textContent = `LCD: 青表示中 (${blueCount}px)`;
+        $('badgeColor').className = 'badge blue';
+        isAppCamera = true;
+      } else {
+        $('badgeColor').textContent = `LCD: 通常表示`;
+        $('badgeColor').className = 'badge';
+      }
     }
 
     // Touch on LCD Canvas
@@ -335,23 +405,34 @@
     });
     lcdCanvas.addEventListener('pointerup', () => sendTouch(0, 0, false));
 
-    // Auto-AppCamera button
-    $('btnAutoAppCamera').onclick = async () => {
-      log('自動遷移: スプラッシュ解除タッチ (90, 80)...');
+    // Auto-AppCamera transition helper
+    async function ensureAppCamera() {
+      if (isAppCamera) return true;
+      log('自動遷移: スプラッシュ解除 (90, 80)...');
       sendTouch(90, 80, true);
       await new Promise(r => setTimeout(r, 200));
       sendTouch(90, 80, false);
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 600));
+
       log('自動遷移: AppCameraタッチ (110, 80)...');
       sendTouch(110, 80, true);
       await new Promise(r => setTimeout(r, 200));
       sendTouch(110, 80, false);
+      await new Promise(r => setTimeout(r, 1000));
+      return true;
+    }
+
+    $('btnAutoAppCamera').onclick = async () => {
+      await ensureAppCamera();
+      log('AppCamera 遷移シーケンス完了');
     };
 
     $('btnHomeTouch').onclick = async () => {
+      log('HomeMenu 戻るタッチ (40, 40)...');
       sendTouch(40, 40, true);
       await new Promise(r => setTimeout(r, 150));
       sendTouch(40, 40, false);
+      isAppCamera = false;
     };
 
     // 4. Camera Stream Handling
@@ -375,7 +456,7 @@
       ws.send(pkt.buffer);
       txFrames++;
       txCountSec++;
-      $('badgeTx').textContent = `TX: ${txFrames} frames`;
+      $('badgeTx').textContent = `TX: ${txFrames}`;
       return true;
     }
 
@@ -434,10 +515,11 @@
       if (!file) return;
       const im = new Image();
       const url = URL.createObjectURL(file);
-      im.onload = () => {
+      im.onload = async () => {
+        await ensureAppCamera();
         const fc = $('fallbackCanvas');
-        fc.width = im.width; fc.height = im.height;
-        fc.getContext('2d').drawImage(im, 0, 0);
+        fc.width = 160; fc.height = 120;
+        fc.getContext('2d').drawImage(im, 0, 0, 160, 120);
         sendFrameFromCanvas(fc);
         URL.revokeObjectURL(url);
         log(`写真送信完了 (${im.width}x${im.height} -> 160x120)`);
@@ -447,40 +529,52 @@
       im.src = url;
     };
 
-    // Color pattern injectors (Testing without hardware camera)
-    function injectSolidColor(r, g, b) {
+    // Color pattern injectors with auto-navigation
+    async function injectSolidColor(r, g, b, colorName) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log(`送信エラー: WebSocket未接続`);
+        return;
+      }
+
+      // AppCamera に未遷移なら自動遷移
+      if (!isAppCamera) {
+        log(`現在 AppCamera 外のため、自動遷移を実行中...`);
+        await ensureAppCamera();
+      }
+
       const c = document.createElement('canvas');
       c.width = 160; c.height = 120;
       const ctx = c.getContext('2d');
       ctx.fillStyle = `rgb(${r},${g},${b})`;
       ctx.fillRect(0, 0, 160, 120);
 
-      // Card 1 にもプレビュー表示
+      // Card 1 プレビュー表示
       const fc = $('fallbackCanvas');
       fc.width = 160; fc.height = 120;
       fc.getContext('2d').drawImage(c, 0, 0);
       fc.style.display = 'block';
       $('webcam').style.display = 'none';
 
-      // FreeRTOS タスクが確実にキャッチできるよう5フレーム連続送信
+      // 5フレーム連続バースト送信
       let sentCount = 0;
       const timer = setInterval(() => {
         const ok = sendFrameFromCanvas(c);
         if (!ok) {
           clearInterval(timer);
-          log(`送信失敗: WebSocket未接続 (readyState: ${ws ? ws.readyState : 'null'})`);
+          log(`送信中断: 送信バッファ超過または未接続`);
           return;
         }
         sentCount++;
         if (sentCount >= 5) {
           clearInterval(timer);
-          log(`単色フレーム送信完了 (5フレーム): RGB(${r}, ${g}, ${b})`);
+          log(`${colorName}フレーム注入完了 (5フレーム連続送信): RGB(${r}, ${g}, ${b})`);
         }
       }, 50);
     }
-    $('btnPatternRed').onclick = () => injectSolidColor(255, 0, 0);
-    $('btnPatternGreen').onclick = () => injectSolidColor(0, 255, 0);
-    $('btnPatternBlue').onclick = () => injectSolidColor(0, 0, 255);
+
+    $('btnPatternRed').onclick = () => injectSolidColor(255, 0, 0, '赤');
+    $('btnPatternGreen').onclick = () => injectSolidColor(0, 255, 0, '緑');
+    $('btnPatternBlue').onclick = () => injectSolidColor(0, 0, 255, '青');
   </script>
 </body>
 </html>
