@@ -1014,6 +1014,7 @@ impl<S: Soc> Machine<S> {
                     let mut rgb = Vec::with_capacity(wd * ht * 3);
                     for px in b[5..5 + wd * ht * 4].chunks(4) { rgb.extend_from_slice(&px[..3]); }
                     self.bus.board().set_camera_picture(crate::picture::Picture { w: wd as u32, h: ht as u32, rgb });
+                    self.ws.cam_sent = false;
                 }
             }
         }
@@ -1045,6 +1046,15 @@ impl<S: Soc> Machine<S> {
                 }
                 "touch" => { let x: u16 = json_str(&m, "x").and_then(|v| v.parse().ok()).unwrap_or(0); let y: u16 = json_str(&m, "y").and_then(|v| v.parse().ok()).unwrap_or(0);
                              let down = json_str(&m, "down").unwrap_or_default() == "1"; self.bus.touch_input(x, y, down); }
+                "imu" => {
+                    let ax: f32 = json_str(&m, "ax").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                    let ay: f32 = json_str(&m, "ay").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                    let az: f32 = json_str(&m, "az").and_then(|v| v.parse().ok()).unwrap_or(9.8);
+                    let gx: f32 = json_str(&m, "gx").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                    let gy: f32 = json_str(&m, "gy").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                    let gz: f32 = json_str(&m, "gz").and_then(|v| v.parse().ok()).unwrap_or(0.0);
+                    self.bus.board().set_imu_state(ax, ay, az, gx, gy, gz);
+                }
                 _ => {}
             }
         }
