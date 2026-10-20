@@ -58,6 +58,9 @@ pub trait BoardModel {
     fn led_grids(&self) -> Vec<(&'static str, &[[u8; 3]], u64)> { Vec::new() }
     /// Touch input from the UI (panel coordinates).
     fn touch(&mut self, _x: u16, _y: u16, _down: bool) {}
+    /// Update IMU state from host/browser motion sensors:
+    /// ax, ay, az (m/s^2), gx, gy, gz (deg/s).
+    fn set_imu_state(&mut self, _ax: f32, _ay: f32, _az: f32, _gx: f32, _gy: f32, _gz: f32) {}
     /// Touch input observed at a specific bus horizon. Untimed boards use the ordinary input path.
     fn touch_at(&mut self, _cycle: VirtualCycle, x: u16, y: u16, down: bool) { self.touch(x, y, down); }
     /// Current board-driven GPIO input levels, used to reconnect a persistent board after reset.

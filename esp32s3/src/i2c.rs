@@ -156,6 +156,385 @@ impl I2cDevice for Cst820 {
     fn read(&mut self) -> u8 { let value = self.reg(self.ptr); self.ptr = self.ptr.wrapping_add(1); self.reads += 1; value }
 }
 
+/// FocalTech FT6336U capacitive touch controller (I2C @ 0x38) used on M5Stack CoreS3.
+pub struct Ft6336 {
+    ptr: u8,
+    first: bool,
+    touch: std::sync::Arc<std::sync::Mutex<TouchState>>,
+    pub reads: u64,
+}
+
+impl Ft6336 {
+    pub fn new(touch: std::sync::Arc<std::sync::Mutex<TouchState>>) -> Self {
+        Ft6336 { ptr: 0, first: true, touch, reads: 0 }
+    }
+
+    fn reg(&self, addr: u8) -> u8 {
+        let mut touch = self.touch.lock().expect("FT6336 touch state mutex poisoned");
+        if addr == 0x02 {
+            if touch.release_pending && touch.seen {
+                touch.down = false;
+                touch.release_pending = false;
+            }
+            if touch.down {
+                touch.seen = true;
+            }
+        }
+        let touch = *touch;
+        match addr {
+            0x00 => 0, // DEV_MODE: normal
+            0x01 => 0, // GEST_ID: no gesture
+            0x02 => if touch.down { 1 } else { 0 }, // TD_STATUS: 1 touch point
+            0x03 => {
+                let event = if touch.down { 0x00 } else { 0x40 }; // 00b: press down, 01b: lift up
+                event | (((touch.x >> 8) as u8) & 0x0f)
+            }
+            0x04 => touch.x as u8,
+            0x05 => ((touch.y >> 8) as u8) & 0x0f,
+            0x06 => touch.y as u8,
+            0xa3 => 0x64, // Chip ID
+            0xa6 => 0x01, // Firmware version
+            0xa8 => 0x11, // FocalTech ID
+            _ => 0,
+        }
+    }
+}
+
+impl I2cDevice for Ft6336 {
+    fn start(&mut self, read: bool) -> bool { if !read { self.first = true; } true }
+    fn write(&mut self, byte: u8) -> bool {
+        if self.first { self.ptr = byte; self.first = false; } else { self.ptr = self.ptr.wrapping_add(1); }
+        true
+    }
+    fn read(&mut self) -> u8 {
+        let value = self.reg(self.ptr);
+        self.ptr = self.ptr.wrapping_add(1);
+        self.reads += 1;
+        value
+    }
+}
+
+/// AW9523B 16-channel LED driver / I/O expander (I2C @ 0x58) used on M5Stack CoreS3.
+pub struct Aw9523 {
+    pub regs: [u8; 256],
+    ptr: u8,
+    first: bool,
+    pub writes: u64,
+    pub port1_state: std::sync::Arc<std::sync::atomic::AtomicU8>,
+}
+
+impl Aw9523 {
+    pub fn new(port1_state: std::sync::Arc<std::sync::atomic::AtomicU8>) -> Self {
+        let mut regs = [0u8; 256];
+        regs[0x00] = 0xff; // Input Port 0
+        regs[0x01] = 0xff; // Input Port 1
+        regs[0x02] = 0xff; // Output Port 0
+        regs[0x03] = 0xff; // Output Port 1
+        regs[0x04] = 0x00; // Config Port 0
+        regs[0x05] = 0x00; // Config Port 1
+        regs[0x10] = 0x23; // Chip ID: AW9523
+        regs[0x11] = 0x10; // Global Control
+        regs[0x12] = 0xff; // LED Mode 0
+        regs[0x13] = 0xff; // LED Mode 1
+        Aw9523 { regs, ptr: 0, first: true, writes: 0, port1_state }
+    }
+}
+
+impl I2cDevice for Aw9523 {
+    fn start(&mut self, read: bool) -> bool { if !read { self.first = true; } true }
+    fn write(&mut self, byte: u8) -> bool {
+        if self.first {
+            self.ptr = byte;
+            self.first = false;
+        } else {
+            self.regs[self.ptr as usize] = byte;
+            if self.ptr == 0x03 {
+                self.port1_state.store(byte, std::sync::atomic::Ordering::Relaxed);
+                self.regs[0x01] = byte;
+            } else if self.ptr == 0x02 {
+                self.regs[0x00] = byte;
+            }
+            self.ptr = self.ptr.wrapping_add(1);
+            self.writes += 1;
+        }
+        true
+    }
+    fn read(&mut self) -> u8 {
+        let value = match self.ptr {
+            0x00 => self.regs[0x02],
+            0x01 => self.regs[0x03],
+            _ => self.regs[self.ptr as usize],
+        };
+        self.ptr = self.ptr.wrapping_add(1);
+        value
+    }
+}
+
+/// IMU state shared between the host/browser motion sensors and the BMI270 model.
+#[derive(Debug, Clone, Copy)]
+pub struct ImuState {
+    pub ax: f32, // m/s^2
+    pub ay: f32,
+    pub az: f32,
+    pub gx: f32, // deg/s
+    pub gy: f32,
+    pub gz: f32,
+}
+
+impl Default for ImuState {
+    fn default() -> Self {
+        ImuState {
+            ax: 0.0,
+            ay: 0.0,
+            az: 9.80665,
+            gx: 0.0,
+            gy: 0.0,
+            gz: 0.0,
+        }
+    }
+}
+
+/// Bosch BMI270 6-axis IMU (I2C @ 0x69).
+pub struct Bmi270 {
+    pub regs: [u8; 256],
+    ptr: u8,
+    first: bool,
+    pub imu: std::sync::Arc<std::sync::Mutex<ImuState>>,
+    pub writes: u64,
+}
+
+impl Bmi270 {
+    pub fn new(imu: std::sync::Arc<std::sync::Mutex<ImuState>>) -> Self {
+        let mut regs = [0u8; 256];
+        regs[0x00] = 0x24; // CHIP_ID
+        regs[0x02] = 0x00; // ERR_REG
+        regs[0x03] = 0x60; // STATUS (drdy_acc = 1, drdy_gyr = 1)
+        regs[0x04] = 0x07; // INT_STATUS_0 (drdy_acc | drdy_gyr | drdy_aux)
+        regs[0x05] = 0x07; // INT_STATUS_1
+        regs[0x21] = 0x01; // INTERNAL_STATUS (ASIC init message: complete)
+        // BMM150 AUX chip ID and dummy mag data
+        regs[0x0a] = 0x32; // BMM150 Chip ID
+        Bmi270 {
+            regs,
+            ptr: 0,
+            first: true,
+            imu,
+            writes: 0,
+        }
+    }
+
+    fn reg(&self, addr: u8) -> u8 {
+        match addr {
+            0x00 => 0x24, // CHIP_ID
+            0x02 => 0x00, // ERR_REG
+            0x03 => 0x60, // STATUS
+            0x1c => 0x00,
+            0x1d => 0xe0, // AUX, gyro and accelerometer ready: bits 13..15 of INT_STATUS
+            0x21 => 0x01, // INTERNAL_STATUS (init complete)
+            0x0c..=0x17 => {
+                let imu = *self.imu.lock().unwrap();
+                // 2G range: 1G = 9.80665 m/s^2 = 16384 LSB => lsb = (m/s^2 / 9.80665) * 16384
+                let lsb_from_mps2 = |v: f32| -> i16 {
+                    ((v / 9.80665) * 16384.0).clamp(-32768.0, 32767.0) as i16
+                };
+                // 2000 dps range: 16.384 LSB / dps => lsb = dps * 16.384
+                let lsb_from_dps = |v: f32| -> i16 {
+                    (v * 16.384).clamp(-32768.0, 32767.0) as i16
+                };
+                let ax = lsb_from_mps2(imu.ax);
+                let ay = lsb_from_mps2(imu.ay);
+                let az = lsb_from_mps2(imu.az);
+                let gx = lsb_from_dps(imu.gx);
+                let gy = lsb_from_dps(imu.gy);
+                let gz = lsb_from_dps(imu.gz);
+                match addr {
+                    0x0c => ax as u8,
+                    0x0d => (ax >> 8) as u8,
+                    0x0e => ay as u8,
+                    0x0f => (ay >> 8) as u8,
+                    0x10 => az as u8,
+                    0x11 => (az >> 8) as u8,
+                    0x12 => gx as u8,
+                    0x13 => (gx >> 8) as u8,
+                    0x14 => gy as u8,
+                    0x15 => (gy >> 8) as u8,
+                    0x16 => gz as u8,
+                    0x17 => (gz >> 8) as u8,
+                    _ => 0,
+                }
+            }
+            a => self.regs[a as usize],
+        }
+    }
+}
+
+impl I2cDevice for Bmi270 {
+    fn start(&mut self, read: bool) -> bool {
+        if !read {
+            self.first = true;
+        }
+        true
+    }
+
+    fn write(&mut self, byte: u8) -> bool {
+        if self.first {
+            self.ptr = byte;
+            self.first = false;
+        } else {
+            self.regs[self.ptr as usize] = byte;
+            self.ptr = self.ptr.wrapping_add(1);
+            self.writes += 1;
+        }
+        true
+    }
+
+    fn read(&mut self) -> u8 {
+        let val = self.reg(self.ptr);
+        self.ptr = self.ptr.wrapping_add(1);
+        val
+    }
+}
+
+/// GalaxyCore GC0308 VGA CMOS image sensor (I2C @ 0x21).
+pub struct Gc0308 {
+    pub regs: [u8; 256],
+    page1: [u8; 256],
+    page: u8,
+    ptr: u8,
+    first: bool,
+    pub writes: u64,
+    pub sensor: std::sync::Arc<std::sync::Mutex<SensorState>>,
+}
+
+impl Gc0308 {
+    pub fn new(sensor: std::sync::Arc<std::sync::Mutex<SensorState>>) -> Self {
+        let mut regs = [0u8; 256];
+        regs[0x00] = 0x9b; // CHIP_ID (PID)
+        regs[0x24] = 0xa2; // YCbYCr output until firmware selects RGB565.
+        Gc0308 {
+            regs,
+            page1: [0; 256],
+            page: 0,
+            ptr: 0,
+            first: true,
+            writes: 0,
+            sensor,
+        }
+    }
+}
+
+impl I2cDevice for Gc0308 {
+    fn start(&mut self, read: bool) -> bool {
+        if !read {
+            self.first = true;
+        }
+        true
+    }
+
+    fn write(&mut self, byte: u8) -> bool {
+        if self.first {
+            self.ptr = byte;
+            self.first = false;
+        } else {
+            if self.ptr == 0xfe {
+                if byte & 0x80 != 0 {
+                    self.regs.fill(0);
+                    self.regs[0x00] = 0x9b;
+                    self.regs[0x24] = 0xa2;
+                    self.page1.fill(0);
+                    self.sensor.lock().unwrap().format = 2;
+                }
+                self.page = byte & 1;
+            } else if self.page == 1 {
+                self.page1[self.ptr as usize] = byte;
+            } else if self.ptr != 0x00 {
+                self.regs[self.ptr as usize] = byte;
+                if self.ptr == 0x24 {
+                    self.sensor.lock().unwrap().format = byte & 0x0f;
+                }
+            }
+            self.ptr = self.ptr.wrapping_add(1);
+            self.writes += 1;
+        }
+        true
+    }
+
+    fn read(&mut self) -> u8 {
+        let value = if self.ptr == 0xfe {
+            self.page
+        } else if self.page == 1 {
+            self.page1[self.ptr as usize]
+        } else {
+            self.regs[self.ptr as usize]
+        };
+        self.ptr = self.ptr.wrapping_add(1);
+        value
+    }
+}
+
+/// Lite-On LTR-553ALS-WA ambient light and proximity sensor (I2C @ 0x23).
+pub struct Ltr553 {
+    pub regs: [u8; 256],
+    ptr: u8,
+    first: bool,
+    pub writes: u64,
+}
+
+impl Default for Ltr553 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Ltr553 {
+    pub fn new() -> Self {
+        let mut regs = [0u8; 256];
+        regs[0x86] = 0x05; // MANUFAC_ID
+        regs[0x87] = 0x92; // PART_ID
+        regs[0x88] = 0x10; // ALS_DATA_CH1_0
+        regs[0x89] = 0x00; // ALS_DATA_CH1_1
+        regs[0x8A] = 0x20; // ALS_DATA_CH0_0
+        regs[0x8B] = 0x00; // ALS_DATA_CH0_1
+        regs[0x8C] = 0x00; // ALS_STATUS
+        regs[0x8D] = 0x00; // PS_DATA_0
+        regs[0x8E] = 0x01; // PS_DATA_1
+        Ltr553 {
+            regs,
+            ptr: 0,
+            first: true,
+            writes: 0,
+        }
+    }
+}
+
+impl I2cDevice for Ltr553 {
+    fn start(&mut self, read: bool) -> bool {
+        if !read {
+            self.first = true;
+        }
+        true
+    }
+
+    fn write(&mut self, byte: u8) -> bool {
+        if self.first {
+            self.ptr = byte;
+            self.first = false;
+        } else {
+            self.regs[self.ptr as usize] = byte;
+            self.ptr = self.ptr.wrapping_add(1);
+            self.writes += 1;
+        }
+        true
+    }
+
+    fn read(&mut self) -> u8 {
+        let val = self.regs[self.ptr as usize];
+        self.ptr = self.ptr.wrapping_add(1);
+        val
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +589,39 @@ mod tests {
         assert!(device.write(0));
         assert!(device.start(true));
         assert_eq!(device.read(), 0xf5);
+    }
+
+    #[test]
+    fn ft6336_reports_id_and_touch() {
+        let touch = std::sync::Arc::new(std::sync::Mutex::new(TouchState { down: true, x: 120, y: 180, ..Default::default() }));
+        let mut device = Ft6336::new(touch);
+        assert!(device.start(false));
+        assert!(device.write(0xa3)); // Chip ID
+        assert!(device.start(true));
+        assert_eq!(device.read(), 0x64);
+
+        assert!(device.start(false));
+        assert!(device.write(0x02)); // TD_STATUS
+        assert!(device.start(true));
+        assert_eq!(device.read(), 1); // 1 point
+        assert_eq!(device.read(), 0x00); // P1_XH: 0 | (120 >> 8)
+        assert_eq!(device.read(), 120);  // P1_XL: 120
+        assert_eq!(device.read(), 0x00); // P1_YH: 0 | (180 >> 8)
+        assert_eq!(device.read(), 180);  // P1_YL: 180
+    }
+
+    #[test]
+    fn aw9523_reports_id_and_updates_port1() {
+        let port1 = std::sync::Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let mut device = Aw9523::new(port1.clone());
+        assert!(device.start(false));
+        assert!(device.write(0x10)); // ID register
+        assert!(device.start(true));
+        assert_eq!(device.read(), 0x23);
+
+        assert!(device.start(false));
+        assert!(device.write(0x03)); // Output Port 1
+        assert!(device.write(0b0000_0110)); // Enable LCD reset & backlight
+        assert_eq!(port1.load(std::sync::atomic::Ordering::Relaxed), 0b0000_0110);
     }
 }

@@ -95,6 +95,7 @@ impl I2c {
                             match self.cur { Some(k) => self.devices[k].1.write(b), None => false }
                         };
                         if !ack && ack_check {
+                            if self.log { eprintln!("[i2c] NACK on cmd {} addr_expected: {}", i, self.expect_addr); }
                             self.nack = true; self.int_raw |= INT_NACK; self.cmd[i] |= 1 << 31;
                             self.cur = None;
                             return;

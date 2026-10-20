@@ -368,6 +368,74 @@ fn browser_touch_reaches_the_amoled_controller_and_gpio() {
     assert!(!m.bus.periph.gpio.level(esp32s3::board::PIN_AMOLED_TOUCH_INT));
 }
 
+#[test]
+fn browser_touch_reaches_the_m5cores3_controller_and_gpio() {
+    let mut m = machine();
+    let board = esp32s3::board::M5CoreS3::new();
+    let touch = board.touch_state.clone();
+    m.bus.board = Box::new(board);
+    let web = esp_soc::web::WebServer::queued();
+    web.push_incoming(r#"{"t":"touch","x":"160","y":"120","down":"1"}"#.to_string());
+    m.web = Some(web);
+    park(&mut m, 0, IRAM, &SPIN);
+    m.max_cycles = 64;
+
+    assert!(matches!(m.run(u64::MAX), Stop::Halted));
+    let state = *touch.lock().expect("M5CoreS3 touch state mutex poisoned");
+    assert!(state.down);
+    assert_eq!((state.x, state.y), (160, 120));
+
+    m.max_cycles = m.bus.cycles + 256;
+    assert!(matches!(m.run(u64::MAX), Stop::Halted));
+    assert!(!m.bus.periph.gpio.level(esp32s3::board::PIN_TOUCH_INT));
+
+    // Release touch
+    m.web.as_ref().unwrap().push_incoming(r#"{"t":"touch","x":"160","y":"120","down":"0"}"#.to_string());
+    m.max_cycles = m.bus.cycles + 64;
+    assert!(matches!(m.run(u64::MAX), Stop::Halted));
+
+    // Advance past the 5ms release hold delay (240_000 * 5 = 1_200_000 cycles)
+    m.max_cycles = m.bus.cycles + 1_500_000;
+    assert!(matches!(m.run(u64::MAX), Stop::Halted));
+    assert!(m.bus.periph.gpio.level(esp32s3::board::PIN_TOUCH_INT));
+}
+
+#[test]
+fn browser_imu_updates_m5cores3_bmi270() {
+    let mut m = machine();
+    let board = esp32s3::board::M5CoreS3::new();
+    let imu = board.imu_state.clone();
+    m.bus.board = Box::new(board);
+    let web = esp_soc::web::WebServer::queued();
+    web.push_incoming(r#"{"t":"imu","ax":"1.25","ay":"-0.5","az":"9.81","gx":"15.0","gy":"-10.0","gz":"2.5"}"#.to_string());
+    m.web = Some(web);
+    park(&mut m, 0, IRAM, &SPIN);
+    m.max_cycles = 64;
+
+    assert!(matches!(m.run(u64::MAX), Stop::Halted));
+    let state = *imu.lock().expect("M5CoreS3 imu state mutex poisoned");
+    assert!((state.ax - 1.25).abs() < 0.001);
+    assert!((state.ay - -0.5).abs() < 0.001);
+    assert!((state.az - 9.81).abs() < 0.001);
+    assert!((state.gx - 15.0).abs() < 0.001);
+    assert!((state.gy - -10.0).abs() < 0.001);
+    assert!((state.gz - 2.5).abs() < 0.001);
+}
+
+#[test]
+fn m5cores3_provides_camera_frames() {
+    let mut board = esp32s3::board::M5CoreS3::new();
+    use esp_soc::board::BoardModel;
+    let frame = board.camera_frame();
+    assert!(frame.is_some());
+    let (w, h, buf) = frame.unwrap();
+    assert_eq!(w, 160);
+    assert_eq!(h, 120);
+    assert_eq!(buf.len(), 160 * 120 * 2);
+}
+
+
+
 /// Console bytes from every stream go to the backlogs and the aggregate; the mask only chooses
 /// what stdout gets, and capture keeps stdout out of it entirely.
 #[test]

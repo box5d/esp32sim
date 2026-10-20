@@ -16,6 +16,7 @@ pub const SRC_GPIO: usize = 16;
 pub const SRC_UART0: usize = 27;
 pub const SRC_UART1: usize = 28;
 pub const SRC_SPI2: usize = 21;
+pub const SRC_SPI3: usize = 22;
 pub const SRC_PCNT: usize = 41;
 pub const SRC_AES: usize = 77;
 pub const SRC_LCD_CAM: usize = 24;
@@ -219,12 +220,14 @@ impl Pcnt {
 /// channel bound to trigger 5 (CAM). Only the register semantics the DVP driver needs are modelled.
 pub struct LcdCam { pub ram: RegRam, pub cam_ctrl: u32, pub cam_ctrl1: u32, pub int_raw: u32, pub int_ena: u32, pub running: bool,
                     pub frame_cycles: u64, pub acc: u64, pub frames: u64, pub dropped: u64,
+                    pub cam_pos: usize, pub cam_chunk_acc: u64, pub cam_eof_pending: bool,
                     // LCD side (RGB / DPI mode): the panel is refreshed from a GDMA out-channel on trigger 5
                     pub lcd_clock: u32, pub lcd_user: u32, pub lcd_ctrl: u32, pub lcd_ctrl1: u32, pub lcd_acc: u64, pub lcd_frames: u64, pub lcd_line: Vec<u8>, pub lcd_fifo: std::collections::VecDeque<u8>, pub lcd_log: bool }
 impl Default for LcdCam { fn default() -> Self { Self::new() } }
 
 impl LcdCam {
     pub fn new() -> Self { LcdCam { ram: RegRam::new(), cam_ctrl: 0, cam_ctrl1: 0, int_raw: 0, int_ena: 0, running: false, frame_cycles: CPU_HZ / 10, acc: 0, frames: 0, dropped: 0,
+                                    cam_pos: 0, cam_chunk_acc: 0, cam_eof_pending: false,
                                     lcd_clock: 0, lcd_user: 0, lcd_ctrl: 0, lcd_ctrl1: 0, lcd_acc: 0, lcd_frames: 0, lcd_line: Vec::new(), lcd_fifo: std::collections::VecDeque::new(), lcd_log: false } }
     pub fn irq(&self) -> bool { self.int_raw & self.int_ena != 0 }
     /// LCD RGB mode running: LCD_START (USER bit 27) with LCD_RGB_MODE_EN (CTRL bit 31).
@@ -258,7 +261,21 @@ impl LcdCam {
             0x18 => { if v & (1 << 27) != 0 { self.lcd_fifo.clear(); if self.lcd_log { eprintln!("[lcd] AFIFO reset"); } } self.ram.write(off, v); }   // LCD_MISC.AFIFO_RESET
             0x1c => self.lcd_ctrl = v, 0x20 => self.lcd_ctrl1 = v,
             0x04 => { self.cam_ctrl = v & !(1 << 4); }                                                                          // CAM_UPDATE (self-clearing)
-            0x08 => { self.cam_ctrl1 = v & !(3 << 30); self.running = v & (1 << 29) != 0; if v & (1 << 30) != 0 { self.acc = 0; } }   // CAM_START / CAM_RESET
+            0x08 => {
+                self.cam_ctrl1 = v & !(3 << 30);
+                let new_running = v & (1 << 29) != 0;
+                if !self.running && new_running && self.cam_pos == 0 {
+                    self.cam_chunk_acc = 0;
+                    self.cam_eof_pending = false;
+                }
+                self.running = new_running;
+                if v & (1 << 30) != 0 {
+                    self.acc = 0;
+                    self.cam_pos = 0;
+                    self.cam_chunk_acc = 0;
+                    self.cam_eof_pending = false;
+                }
+            }   // CAM_START / CAM_RESET
             0x64 => self.int_ena = v, 0x70 => self.int_raw &= !v,
             _ => self.ram.write(off, v),
         }
@@ -391,6 +408,7 @@ pub struct Peripherals {
     pub i2c: [crate::i2c::I2c; 2],
     pub lcd_cam: LcdCam,
     pub spi2: GpSpi,
+    pub spi3: GpSpi,
     pub pcnt: Pcnt,
     pub wifi: WifiMac,
     pub fe: FeIq,
@@ -444,6 +462,7 @@ device_set! { Peripherals; clock: (clock) CPU_HZ, [(ClockDomain::Systimer, 15), 
     0x27 "I2C1" (i2c[1]) => [SRC_I2C1];
     0x41 "LCD_CAM" (lcd_cam) => [SRC_LCD_CAM];
     0x24 "SPI2" (spi2) => [SRC_SPI2];
+    0x25 "SPI3" (spi3) => [SRC_SPI3];
     0x17 "PCNT" (pcnt) => [SRC_PCNT];
     0x33 "WIFI_MAC" (wifi) => [SRC_WIFI_MAC];
     0x34 "WIFI_MAC" alias (wifi) delta 0x1000 => [];
@@ -479,7 +498,7 @@ impl Peripherals {
             usb: UsbSerialJtag::new(CPU_HZ), uart: [Uart::new(UartLayout::S3), Uart::new(UartLayout::S3), Uart::new(UartLayout::S3)], systimer: Systimer::new(),
             timg: [TimerGroup::new(), TimerGroup::new()], intmatrix: IntMatrix::new(), gpio: Gpio::new(), rtc: RtcCntl::new(),
             efuse: Efuse::new(mac), system: SystemRegs::new(0x30), extmem: Extmem::new(), spi0: SpiMem::new(false), spi1: SpiMem::new(true),
-            i2c: [crate::i2c::I2c::new(), crate::i2c::I2c::new()], lcd_cam: LcdCam::new(), spi2: GpSpi::new(), pcnt: Pcnt::new(), wifi: WifiMac::new(), fe: FeIq { word: 0, done: false },
+            i2c: [crate::i2c::I2c::new(), crate::i2c::I2c::new()], lcd_cam: LcdCam::new(), spi2: GpSpi::new(), spi3: GpSpi::new(), pcnt: Pcnt::new(), wifi: WifiMac::new(), fe: FeIq { word: 0, done: false },
             aes: Aes::new(), rsa: Rsa::new(), sha: Sha::new(), wdev: Wdev::new(), i2c_mst: I2cMst::new(), gdma: Gdma::new(), i2s0: I2s::new(CPU_HZ), i2s1: I2s::new(CPU_HZ), rmt: Rmt::new(CPU_HZ),
             io_mux: RegRam::new(), misc: Misc::new(), fake_reads: std::env::var("ESP_EMU_FAKE_READ").ok().map(|v| v.split(',').filter_map(|e| { let mut p = e.split(':'); let a = u32::from_str_radix(p.next()?.trim_start_matches("0x"), 16).ok()?; let o = u32::from_str_radix(p.next().unwrap_or("0").trim_start_matches("0x"), 16).ok()?; let m = u32::from_str_radix(p.next().unwrap_or("ffffffff").trim_start_matches("0x"), 16).ok()?; Some((a, (o, m))) }).collect()).unwrap_or_default(),
             clock: Self::new_clock(),

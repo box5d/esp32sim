@@ -62,15 +62,25 @@ impl SpiMem {
         let misc = self.regs.read(0x34);
         if self.has_psram && cmd & (1 << 18) != 0 && misc & 1 != 0 && misc & 2 == 0 {   // USR command with CS0 disabled, CS1 enabled: the octal PSRAM
             let c16 = user2 & 0xffff;
+            let c8 = (user2 & 0xff) as u8;
             let has_miso = user & (1 << 28) != 0; let has_mosi = user & (1 << 27) != 0;
-            if self.log { eprintln!("[spi1] psram cmd {:#06x} addr {:#x} miso {} mosi {}", c16, addr, if has_miso { miso_bytes } else { 0 }, if has_mosi { mosi_bytes } else { 0 }); }
+            if self.log { eprintln!("[spi1] psram cmd {:#06x} (c8={:#04x}) addr {:#x} miso {} mosi {}", c16, c8, addr, if has_miso { miso_bytes } else { 0 }, if has_mosi { mosi_bytes } else { 0 }); }
             let psize = psram.len();
             match c16 {
                 0x4040 => { let i = (addr & 0xf) as usize; let d: Vec<u8> = (0..miso_bytes).map(|k| *self.psram_mr.get(i + k).unwrap_or(&0)).collect(); self.set_w_bytes(&d); }   // mode register read
                 0xC0C0 => { let d = self.w_bytes(mosi_bytes); let i = (addr & 0xf) as usize; for (k, b) in d.iter().enumerate() { if i + k == 0 || i + k == 8 { self.psram_mr[i + k] = *b; } } }   // mode register write (MR0/MR8 writable)
                 0x8080 => { let d = self.w_bytes(mosi_bytes); self.dirty.push((DirtyMem::Psram, addr as usize, d.len())); for (k, b) in d.iter().enumerate() { let x = addr as usize + k; if x < psize { psram[x] = *b; } } }   // sync write
                 0x0000 => { let d: Vec<u8> = (0..miso_bytes).map(|k| { let x = addr as usize + k; if x < psize { psram[x] } else { 0 } }).collect(); self.set_w_bytes(&d); }   // sync read
-                _ => { if has_miso { self.set_w_bytes(&vec![0u8; miso_bytes]); } }
+                _ => {
+                    if c8 == 0x9f {
+                        // Quad PSRAM Read ID: [MFG: 0x0d, KGD: 0x5d, Dev: 0x22] (APS6404L 8MB)
+                        let id = [0x0d, 0x5d, 0x22, 0x00];
+                        let d: Vec<u8> = (0..miso_bytes).map(|k| *id.get(k).unwrap_or(&0)).collect();
+                        self.set_w_bytes(&d);
+                    } else if has_miso {
+                        self.set_w_bytes(&vec![0u8; miso_bytes]);
+                    }
+                }
             }
             return;
         }

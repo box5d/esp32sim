@@ -11,20 +11,23 @@
 pub use esp_soc::board::{Board, BoardEdge, BoardModel, NoBoard, VirtualCycle};
 
 pub mod atech14;
+pub mod m5cores3;
 pub mod waveshare_amoled18;
 pub mod waveshare_cam;
 pub mod waveshare_lcd4b;
 
 pub use atech14::*;
+pub use m5cores3::*;
 pub use waveshare_amoled18::*;
 pub use waveshare_cam::*;
 pub use waveshare_lcd4b::*;
 
-/// Board by name: `atech14` (default), `none`, or a supported Waveshare board.
+/// Board by name: `atech14` (default), `none`, `m5cores3`, or a supported Waveshare board.
 pub fn make_board(name: &str) -> Option<Board> {
     match name {
         "atech14" | "atech" => Some(Box::new(Atech14::new())),
         "none" | "bare" => Some(Box::new(NoBoard)),
+        "m5cores3" | "cores3" | "m5stack-cores3" => Some(Box::new(M5CoreS3::new())),
         "waveshare-cam" | "waveshare" => Some(Box::new(WaveshareCam::new())),
         "waveshare-lcd4b" | "lcd4b" => Some(Box::new(WaveshareLcd4b::new())),
         "waveshare-amoled18-v2" | "amoled18-v2" => Some(Box::new(WaveshareAmoled18V2::new())),

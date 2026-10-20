@@ -79,3 +79,49 @@ pub fn to_yuyv(p: &Picture, w: u32, h: u32) -> Vec<u8> {
     }
     out
 }
+
+/// Nearest-neighbour resample to `w`x`h` and pack as RGB565 (big-endian DVP format).
+pub fn to_rgb565(p: &Picture, w: u32, h: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (w * h * 2) as usize];
+    for y in 0..h {
+        let sy = (y as u64 * p.h as u64 / h as u64) as usize;
+        for x in 0..w {
+            let sx = (x as u64 * p.w as u64 / w as u64) as usize;
+            let o = (sy * p.w as usize + sx) * 3;
+            let r = (p.rgb[o] as u16) >> 3;
+            let g = (p.rgb[o + 1] as u16) >> 2;
+            let b = (p.rgb[o + 2] as u16) >> 3;
+            let val = (r << 11) | (g << 5) | b;
+            let idx = ((y * w + x) * 2) as usize;
+            out[idx] = (val >> 8) as u8;
+            out[idx + 1] = val as u8;
+        }
+    }
+    out
+}
+
+/// Create a default test pattern (color bars) picture.
+pub fn default_test_pattern(w: u32, h: u32) -> Picture {
+    let colors = [
+        [255, 255, 255], // White
+        [255, 255, 0],   // Yellow
+        [0, 255, 255],   // Cyan
+        [0, 255, 0],     // Green
+        [255, 0, 255],   // Magenta
+        [255, 0, 0],     // Red
+        [0, 0, 255],     // Blue
+        [30, 30, 30],    // Dark Gray
+    ];
+    let mut rgb = vec![0u8; (w * h * 3) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let bar = (x * 8 / w) as usize;
+            let c = colors[bar.min(7)];
+            let idx = ((y * w + x) * 3) as usize;
+            rgb[idx] = c[0];
+            rgb[idx + 1] = c[1];
+            rgb[idx + 2] = c[2];
+        }
+    }
+    Picture { w, h, rgb }
+}

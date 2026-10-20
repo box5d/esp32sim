@@ -163,7 +163,9 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
     }
     // read loop
     let mut read_exact = |n: usize| -> Option<Vec<u8>> { let mut v = vec![0u8; n]; let mut got = 0; while got < n { match stream.read(&mut v[got..]) { Ok(0) | Err(_) => return None, Ok(k) => got += k } } Some(v) };
+    let mut fragmented: Option<(u8, Vec<u8>)> = None;
     while let Some(h) = read_exact(2) {
+        let fin = h[0] & 0x80 != 0;
         let op = h[0] & 0xf; let masked = h[1] & 0x80 != 0; let mut len = (h[1] & 0x7f) as u64;
         if len == 126 { let Some(e) = read_exact(2) else { break }; len = u16::from_be_bytes([e[0], e[1]]) as u64; }
         else if len == 127 { let Some(e) = read_exact(8) else { break }; len = u64::from_be_bytes(e.try_into().unwrap()); }
@@ -171,9 +173,27 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
         if len > 8 << 20 { break; }
         let Some(mut data) = read_exact(len as usize) else { break };
         if masked { for (i, b) in data.iter_mut().enumerate() { *b ^= mask[i & 3]; } }
-        match op {
+        // Browsers may split a 160x120 RGBA camera message across multiple frames.
+        // Publish only complete messages; partial images must never replace a queued image.
+        if h[0] & 0x70 != 0 || (op >= 8 && (!fin || len > 125)) { break; }
+        let (op, data) = match op {
             8 => break,
-            9 => {}
+            9 | 10 => continue,
+            1 | 2 => {
+                if fragmented.is_some() { break; }
+                if !fin { fragmented = Some((op, data)); continue; }
+                (op, data)
+            }
+            0 => {
+                let Some((_, pending)) = fragmented.as_mut() else { break };
+                if pending.len() + data.len() > 8 << 20 { break; }
+                pending.extend_from_slice(&data);
+                if !fin { continue; }
+                fragmented.take().unwrap()
+            }
+            _ => break,
+        };
+        match op {
             1 => { shared.lock().unwrap().incoming.push_back(String::from_utf8_lossy(&data).to_string()); }
             2 => {
                 let mut sh = shared.lock().unwrap();
@@ -225,6 +245,58 @@ pub fn json_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fragmented_phone_camera_message_is_reassembled() {
+        let server = WebServer::queued();
+        // Exercise the real handler without touching an existing emulator.
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let shared = server.shared.clone();
+        let handler = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            handle_client(stream, shared);
+        });
+        let mut client = TcpStream::connect(addr).unwrap();
+        client.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        client.write_all(b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n").unwrap();
+        let mut response = Vec::new();
+        while !response.ends_with(b"\r\n\r\n") {
+            let mut byte = [0];
+            client.read_exact(&mut byte).unwrap();
+            response.push(byte[0]);
+        }
+        let mut image = vec![0u8; 5 + 160 * 120 * 4];
+        image[..5].copy_from_slice(&[3, 160, 0, 120, 0]);
+        image[5..].fill(0xa5);
+        let masked = |op: u8, fin: bool, bytes: &[u8]| {
+            let mut packet = frame(op, bytes);
+            if !fin { packet[0] &= 0x7f; }
+            let header = match packet[1] { 126 => 4, 127 => 10, _ => 2 };
+            packet[1] |= 0x80;
+            packet.splice(header..header, [0u8; 4]);
+            packet
+        };
+        let mut previous = image.clone();
+        previous[5..].fill(0x5a);
+        client.write_all(&masked(2, true, &previous)).unwrap();
+        client.write_all(&masked(2, false, &image[..32768])).unwrap();
+        client.write_all(&masked(9, true, b"ping between fragments")).unwrap();
+        client.write_all(&masked(0, false, &image[32768..65536])).unwrap();
+        client.write_all(&masked(0, true, &image[65536..])).unwrap();
+        client.write_all(&masked(1, false, b"hel")).unwrap();
+        client.write_all(&masked(0, true, b"lo")).unwrap();
+        // A later incomplete image must not evict the last complete one.
+        client.write_all(&masked(2, false, &previous[..32768])).unwrap();
+        // Closing after the data gives a deterministic synchronization point.
+        client.write_all(&masked(8, true, &[])).unwrap();
+        handler.join().unwrap();
+        let received = server.poll_incoming_bin();
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].len(), image.len());
+        assert!(received[0] == image, "camera bytes must survive reassembly");
+        assert_eq!(server.poll_incoming(), vec!["hello"]);
+    }
 
     #[test]
     fn websocket_key_header_matches_any_case() {

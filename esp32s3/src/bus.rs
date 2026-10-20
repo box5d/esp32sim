@@ -264,6 +264,7 @@ impl SocBus {
         self.periph.write32(a, v);
         self.complete_spi2_dma();
         self.deliver_spi2_transfer();
+        self.deliver_spi3_transfer();
         // GPIO output writes usually only drive the board, but an enabled level
         // interrupt also observes output levels. Inspect only changed output pins.
         if !(0x6000_4004..=0x6000_4018).contains(&a) {
@@ -341,6 +342,21 @@ impl SocBus {
         }
         let rx = self.board.spi_transfer(2, &transfer.tx, transfer.rx_len);
         self.periph.spi2.finish_transfer(transfer, &rx);
+    }
+
+    fn deliver_spi3_transfer(&mut self) {
+        let Some(transfer) = self.periph.spi3.take_transfer() else { return };
+        if !self.periph.gpio.changes.is_empty() {
+            let changes = std::mem::take(&mut self.periph.gpio.changes);
+            if let Some(events) = &mut self.gpio_events {
+                for &(pin, level) in &changes {
+                    events.push((self.cycles, pin, level));
+                }
+            }
+            self.board.gpio_changes(&changes);
+        }
+        let rx = self.board.spi_transfer(3, &transfer.tx, transfer.rx_len);
+        self.periph.spi3.finish_transfer(transfer, &rx);
     }
 
     /// Collect one GP-SPI2 data phase and its GDMA completion without partially committing a
@@ -614,34 +630,98 @@ impl SocBus {
         }
     }
 
-    /// Camera engine: when a sensor frame is due, push it through the GDMA IN channel bound to CAM (trigger 5).
+    /// Camera engine: simulate DVP sensor streaming through GDMA IN channel 5 and LCD_CAM interrupts.
     fn dma_cam_step(&mut self, cycles: u64) {
-        if !self.periph.lcd_cam.frame_due(cycles) { return; }
-        let Some(ch) = self.periph.gdma.in_channel_for(5) else { self.periph.lcd_cam.dropped += 1; return };
-        let Some((_w, _h, frame)) = self.board.camera_frame() else { self.periph.lcd_cam.dropped += 1; return };
-        let mut pos = 0usize;
-        let mut desc = self.periph.gdma.inp[ch].desc;
-        let mut last = desc;
-        while desc != 0 && pos < frame.len() {
-            let dw0 = self.read32(desc).unwrap_or(0);
-            let size = (dw0 & 0xfff) as usize; let buf = self.read32(desc + 4).unwrap_or(0); let next = self.read32(desc + 8).unwrap_or(0);
-            if dw0 & (1 << 31) == 0 || size == 0 { break; }                   // descriptor not owned by DMA
-            let n = size.min(frame.len() - pos);
-            let mut i = 0;
-            while i + 4 <= n { let v = u32::from_le_bytes([frame[pos + i], frame[pos + i + 1], frame[pos + i + 2], frame[pos + i + 3]]); let _ = self.write32(buf + i as u32, v); i += 4; }
-            while i < n { let _ = self.write8(buf + i as u32, frame[pos + i]); i += 1; }
-            pos += n;
-            let eof = pos >= frame.len();
-            let ndw0 = (dw0 & !(0xfff << 12) & !(1 << 31) & !(1 << 30)) | ((n as u32) << 12) | if eof { 1 << 30 } else { 0 };   // length, owner=cpu, suc_eof
-            let _ = self.write32(desc, ndw0);
-            last = desc; desc = next;
+        let ch_opt = self.periph.gdma.in_channel_for(5);
+        if !self.periph.lcd_cam.running || ch_opt.is_none() {
+            // Camera or GDMA is idle. Generate periodic VSYNC pulses (at frame_cycles rate)
+            // to allow cam_task (in CAM_STATE_IDLE) to receive CAM_VSYNC_EVENT and start a frame.
+            self.periph.lcd_cam.acc += cycles;
+            if self.periph.lcd_cam.acc >= self.periph.lcd_cam.frame_cycles {
+                self.periph.lcd_cam.acc -= self.periph.lcd_cam.frame_cycles;
+                self.periph.lcd_cam.int_raw |= 1 << 2; // CAM_VSYNC_INT
+                self.irq_dirty = true;
+            }
+            self.periph.lcd_cam.cam_chunk_acc = 0;
+            return;
         }
+
+        let ch = ch_opt.unwrap();
+        let Some((_w, _h, frame)) = self.board.camera_frame() else {
+            return;
+        };
+
+        let tick_cycles = (self.periph.lcd_cam.frame_cycles / 12).max(100_000);
+        self.periph.lcd_cam.cam_chunk_acc += cycles;
+        if self.periph.lcd_cam.cam_chunk_acc < tick_cycles {
+            return;
+        }
+        self.periph.lcd_cam.cam_chunk_acc = 0;
+
+        if self.periph.lcd_cam.cam_eof_pending {
+            self.periph.lcd_cam.cam_eof_pending = false;
+            self.periph.lcd_cam.cam_pos = 0;
+            self.periph.lcd_cam.int_raw |= 1 << 2; // CAM_VSYNC_INT
+            self.periph.lcd_cam.frames += 1;
+            self.irq_dirty = true;
+            return;
+        }
+
+        let desc = self.periph.gdma.inp[ch].desc;
+        if desc == 0 { return; }
+
+        let dw0 = self.read32(desc).unwrap_or(0);
+        let size = (dw0 & 0xfff) as usize;
+        let buf = self.read32(desc + 4).unwrap_or(0);
+        let next = self.read32(desc + 8).unwrap_or(0);
+        if size == 0 { return; }
+
+        let check_owner = (self.periph.gdma.inp[ch].conf1 & (1 << 12)) != 0;
+        if check_owner && (dw0 & (1 << 31) == 0) {
+            return;
+        }
+
+        let pos = self.periph.lcd_cam.cam_pos;
+        let remaining = frame.len().saturating_sub(pos);
+        let n = size.min(remaining);
+
+        let mut i = 0;
+        while i + 4 <= n {
+            let v = u32::from_le_bytes([frame[pos + i], frame[pos + i + 1], frame[pos + i + 2], frame[pos + i + 3]]);
+            let _ = self.write32(buf + i as u32, v);
+            i += 4;
+        }
+        while i < n {
+            let _ = self.write8(buf + i as u32, frame[pos + i]);
+            i += 1;
+        }
+        self.periph.lcd_cam.cam_pos += n;
+        let frame_complete = self.periph.lcd_cam.cam_pos >= frame.len();
+
+        let rec_len = (self.periph.lcd_cam.cam_ctrl1 & 0xffff) as usize + 1;
+        let is_eof = frame_complete || (if rec_len > 1 {
+            self.periph.lcd_cam.cam_pos % rec_len == 0
+        } else {
+            true
+        });
+
+        let ndw0 = (dw0 & !(0xfff << 12) & !(1 << 31) & !(1 << 30))
+            | ((n as u32) << 12)
+            | if is_eof { 1 << 30 } else { 0 };
+        let _ = self.write32(desc, ndw0);
+
         let r = &mut self.periph.gdma.inp[ch];
-        r.eof_desc = last; r.desc = desc; r.int_raw |= (1 << 0) | (1 << 1);                    // IN_DONE | IN_SUC_EOF
-        if desc == 0 { r.running = false; }
-        self.periph.lcd_cam.int_raw |= 1 << 2;                                                  // CAM_VSYNC_INT
-        self.periph.lcd_cam.frames += 1;
+        r.desc = next;
+        r.eof_desc = desc;
+        r.int_raw |= 1 << 0; // IN_DONE
+        if is_eof {
+            r.int_raw |= 1 << 1; // IN_SUC_EOF
+        }
         self.irq_dirty = true;
+
+        if frame_complete {
+            self.periph.lcd_cam.cam_eof_pending = true;
+        }
     }
 
     /// LCD RGB output: consume the GDMA out-channel bound to LCD (trigger 5) at the panel's pixel rate,
@@ -1065,6 +1145,7 @@ impl SocBus {
             self.board.gpio_changes(&ch);
         }
         self.deliver_spi2_transfer();
+        self.deliver_spi3_transfer();
         if !self.periph.rmt.done.is_empty() {
             for (ch, bits) in std::mem::take(&mut self.periph.rmt.done) {
                 let pin = self.periph.gpio.pin_for_signal(RMT_SIG_OUT0 + ch as u32).unwrap_or(u8::MAX);
@@ -1110,6 +1191,60 @@ mod gp_spi_board_tests {
 
     const M2M_SRC: u32 = 0x3fc9_2000;
     const M2M_DST: u32 = 0x3fc9_6000;
+
+    struct CameraFrameBoard {
+        frame: std::sync::Arc<Vec<u8>>,
+    }
+
+    impl crate::board::BoardModel for CameraFrameBoard {
+        fn name(&self) -> &'static str { "camera-frame-test" }
+        fn camera_frame(&mut self) -> Option<(u32, u32, std::sync::Arc<Vec<u8>>)> {
+            Some((4, 1, self.frame.clone()))
+        }
+    }
+
+    #[test]
+    fn camera_dma_reports_each_chunk_and_completes_vsync_with_the_terminal_chunk() {
+        const DESC0: u32 = 0x3fc9_0100;
+        const DESC1: u32 = 0x3fc9_0110;
+        const BUF0: u32 = 0x3fc9_1000;
+        const BUF1: u32 = 0x3fc9_1010;
+        let mut bus = SocBus::new(1024, 1024, [0; 6]);
+        bus.board = Box::new(CameraFrameBoard { frame: std::sync::Arc::new((0..8).collect()) });
+        m2m_desc(&mut bus, DESC0, (1 << 31) | 4, BUF0, DESC1);
+        m2m_desc(&mut bus, DESC1, (1 << 31) | 4, BUF1, 0);
+        bus.periph.gdma.inp[0].peri_sel = 5;
+        bus.periph.gdma.inp[0].desc = DESC0;
+        bus.periph.gdma.inp[0].running = true;
+        bus.periph.lcd_cam.running = true;
+        bus.periph.lcd_cam.frame_cycles = 1_200_000;
+
+        bus.dma_cam_step(100_000);
+        let first = bus.read32(DESC0).unwrap();
+        assert_ne!(first & (1 << 30), 0, "each DMA chunk carries suc_eof for the camera HAL");
+        assert_eq!(bus.periph.gdma.inp[0].int_raw & 3, 3, "each chunk raises IN_DONE and IN_SUC_EOF");
+        assert_eq!(bus.periph.lcd_cam.frames, 0);
+
+        // ESP-IDF briefly stops and restarts CAM while recycling a completed
+        // descriptor.  That pause must not rewind the partially captured frame.
+        bus.periph.lcd_cam.write(0x08, 0);
+        bus.dma_cam_step(100_000);
+        assert_eq!(bus.periph.lcd_cam.cam_pos, 4);
+        bus.periph.lcd_cam.write(0x08, 1 << 29);
+
+        bus.periph.gdma.inp[0].int_raw = 0;
+        bus.dma_cam_step(100_000);
+        let last = bus.read32(DESC1).unwrap();
+        assert_ne!(last & (1 << 30), 0, "the terminal DMA chunk also carries suc_eof");
+        assert_eq!(bus.periph.gdma.inp[0].int_raw & 3, 3, "IN_DONE and IN_SUC_EOF are raised together");
+        assert_eq!(bus.periph.lcd_cam.frames, 0, "VSYNC follows the terminal chunk on the blanking step");
+
+        bus.dma_cam_step(100_000);
+        assert_eq!(bus.periph.lcd_cam.frames, 1, "the frame completes on the VSYNC step");
+        assert_ne!(bus.periph.lcd_cam.int_raw & (1 << 2), 0, "VSYNC accompanies the blanking step");
+        assert_eq!((0..4).map(|i| bus.read8(BUF0 + i).unwrap()).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
+        assert_eq!((0..4).map(|i| bus.read8(BUF1 + i).unwrap()).collect::<Vec<_>>(), vec![4, 5, 6, 7]);
+    }
 
     fn m2m_pattern(i: u32, seed: u32) -> u8 { ((i + seed) % 251) as u8 }
 

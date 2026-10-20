@@ -21,6 +21,7 @@
   };
 
   const BOARD = {
+    'm5cores3': { soc: 'ESP32-S3 rev 0', cpu: '2× Xtensa LX7 @ 240 MHz', board: 'M5Stack CoreS3', peripherals: 'ILI9342C 320×240 IPS · FT6336U touch · AXP2101 PMU · AW9523B IO' },
     'waveshare-lcd4b': { soc: 'ESP32-S3 rev 0', cpu: '2× Xtensa LX7 @ 240 MHz', board: 'Waveshare Touch-LCD-4B', peripherals: 'ST7701S 480×480 RGB · GT911 touch · I²S audio' },
     'waveshare-amoled18-v2': { soc: 'ESP32-S3 rev 0', cpu: '2× Xtensa LX7 @ 240 MHz', board: 'Waveshare AMOLED-1.8 V2', peripherals: 'CO5300 368×448 QSPI · CST820 touch' },
     atech14: { soc: 'ESP32-S3 rev 0', cpu: '2× Xtensa LX7 @ 240 MHz', board: 'Atech 14-port', peripherals: 'ST7735 · WS2812 · encoder · buttons · I²S audio' },
