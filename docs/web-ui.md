@@ -18,6 +18,10 @@ UART0 consoles, an action box for the SDK's JSON protocol, and audio through Web
 The native server accepts browser WebSocket connections only from pages at
 `http://127.0.0.1:PORT` or `http://localhost:PORT`, using the server's port. It checks
 the browser's `Origin` header, which identifies the page's scheme, host and port.
+`ESP_EMU_WEB_BIND` overrides the listener address (for example, to reach the page
+from a phone on the LAN), and `ESP_EMU_WEB_ORIGIN` adds exact-match extra origins to
+the check (comma-separated; a client page served from another port, such as the
+CoreS3 Studio console page, uses this to open `ws://` to the emulator).
 Local native clients may omit `Origin`; the server treats those tools as trusted.
 See the [Origin check](../esp-soc/src/web.rs) for the implementation.
 
@@ -68,7 +72,10 @@ Text frames:
 | `touch` | `x`, `y`, `down` (1 = touching); panel coordinates — a rotated panel view (the panel header's selector, `?rotate=`, or a manifest's `display_rotate`) maps its point back first |
 
 Binary frame type 3: camera picture, `w u16le, h u16le`, RGBA8888 — used by the picture
-upload and the webcam (4 fps). Frames up to 8 MB are accepted.
+upload and the webcam (4 fps). Frames up to 8 MB are accepted. Browsers that fragment
+outgoing WebSocket messages (mobile WebViews split a 76805-byte picture into ~32 KiB
+frames) are reassembled before the 8 MB limit applies, and with several tabs connected
+the newest complete picture wins.
 
 ## Sending is never blocking
 
@@ -94,4 +101,6 @@ See [live camera input](cli.md#live-camera-input) for supported formats and limi
 
 Camera errors use `{"t":"camera-error","message":"..."}` and appear beside
 the source controls. Webcam tracks stop on emulator stop, boot failure, disconnect
-and page exit. Insecure origins report that HTTPS or localhost is required.
+and page exit. Insecure origins (or `getUserMedia` being missing) explain that HTTPS
+or localhost is required and open the picture picker instead; a phone also offers the
+rear camera through the picker's `capture=environment` when taking a photo.
