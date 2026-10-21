@@ -128,6 +128,27 @@ The energy-scan firmware and the run recipe: `examples/waveshare-c6-lcd147/`, [e
 
 Selected with `--chip esp32 --board ttgo-tdisplay` (alias `tdisplay`); [esp32.md](esp32.md#the-board---board-ttgo-tdisplay).
 
+## `m5cores3` — M5Stack CoreS3 (also matches `cores3`, `m5stack-cores3`)
+
+| Device | Bus | Model |
+| --- | --- | --- |
+| ILI9342C 320×240 IPS panel | GP-SPI2 (SCLK 36, MOSI 37, D/C 35, CS 3) | `DcsPanel`: RGB565 frame memory; the DVP camera shares the LCD_CAM block |
+| FT6336U touch @0x38 | I2C0 (SDA 12, SCL 11, INT 21) | identity/config/point reports; UI pointer events are latched until the driver reads them |
+| AXP2101 PMU @0x34 | I2C0 | register stub (chip id 0x4a, power status/DCDC); power-down sequencing lives outside this model |
+| AW9523B IO expander @0x58 | I2C0 | P1 drives the LCD reset, the backlight and the bus power |
+| BMI270 IMU @0x69 | I2C0 | accelerometer/gyro registers; `set_imu_motion` scripts the poses, `imu_motion(u32)` reports the mode (see `tests/bmi270.rs` and the machine tests) |
+| BM8563 RTC @0x51 | I2C0 | register stub; also mirrored at a second address |
+| GC0308 camera @0x21 | I2C0 config, LCD_CAM DVP data | RGB565 or YUYV frames through the upstream GDMA camera pipeline (`board.camera_frame()`); host type-3 pictures feed the same path |
+| ES7210 @0x40 / AW88298 @0x36 | I2C0 + I2S | codec registers; audio captured from the I2S port |
+| LTR553 @0x23, AK09918 @0x0c, BMM150 @0x10 | I2C0 | identity-compatible register stubs; the light/proximity and magnetometer behaviour lives outside this model |
+
+The full peripheral set is mirrored on both I2C controllers (0 and 1) so a firmware's
+either `Wire` instance finds every chip.
+
+Needs `--flash-mb 16 --psram-mb 8`. A launcher that also binds the LAN and allows the
+CoreS3 Studio console origin lives beside the repo (`../run_m5cores3.sh` from the repo
+root). The sync and verification record: [cores3-upstream-sync.md](cores3-upstream-sync.md).
+
 ## `none` — bare module
 
 No devices; console only. For stock ESP-IDF projects (`examples/hello_world`).
