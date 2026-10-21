@@ -132,3 +132,48 @@ fn m5cores3_i2c_peripherals() {
     assert!(report.contains("[m5cores3] LCD:"));
     assert!(report.contains("AW9523 P1="));
 }
+
+/// SENS ADC1 one-shot on a CoreS3-shaped machine: Port BGPIO8 (ADC1 channel 7) converts the
+/// host-supplied pad voltage through SENS_SAR_MEAS1_CTRL2, the register the IDF 4.4 firmware
+/// (Arduino-ESP32 2.x, as shipped on CoreS3) reaches at RTC_CNTL base + 0x800 + 0x0c.
+#[test]
+fn m5cores3_sens_adc1_oneshot_converts_port_b() {
+    use emu_core::Bus;
+    use esp_periph::{rtc_cntl::RtcCntl, AnalogSource};
+    use esp_soc::SocBus;
+
+    const CTRL: u32 = 0x6000_880c;    // SENS_SAR_MEAS1_CTRL2: DATA [15:0], DONE 16, START 17, EN_PAD [30:19]
+    const ATTEN: u32 = 0x6000_8814;   // SENS_SAR_ATTEN1: channel 7 attenuation in bits 15:14
+    const EN_PAD7: u32 = 1 << (19 + 7);
+    const START: u32 = 1 << 17;
+
+    let mut m = esp32s3::machine([0; 6]);
+    m.console.capture = true;
+    m.bus.board = make_board("m5cores3").expect("m5cores3 board should be registered");
+    m.bus.attach_board_devices();
+
+    // The touch interrupt pad (GPIO21) sits outside the S3 ADC window; the model rejects it.
+    assert!(!m.bus.adc_set_raw(PIN_TOUCH_INT, 1));
+    assert_eq!(m.bus.adc_observation(8).unwrap().generation, 0);
+
+    m.bus.write32(ATTEN, 3 << 14).unwrap(); // 11 dB, the Arduino analogRead default on Port B
+    m.bus.analog_set(8, AnalogSource::Const(1.650));
+    m.bus.write32(CTRL, EN_PAD7).unwrap(); // arm EN_PAD with START low
+    assert_eq!(m.bus.adc_observation(8).unwrap().generation, 0, "arm alone does not convert");
+
+    m.bus.write32(CTRL, EN_PAD7 | START).unwrap();
+    let meas = m.bus.read32(CTRL).unwrap();
+    let expect = RtcCntl::s3_adc_code(1.650, 3);
+    assert_ne!(meas & (1 << 16), 0, "DONE follows the rising START edge");
+    assert_eq!(meas & 0xfff, expect);
+    assert_eq!(m.bus.adc_observation(8).unwrap().raw, expect as u16);
+    assert_eq!(m.bus.adc_observation(8).unwrap().generation, 1);
+
+    // A host raw count replaces the voltage source for the next one-shot; START must
+    // fall first — while it is held high the S3 keeps the last DONE/DATA pair.
+    assert!(m.bus.adc_set_raw(8, 3000));
+    m.bus.write32(CTRL, EN_PAD7).unwrap();
+    m.bus.write32(CTRL, EN_PAD7 | START).unwrap();
+    assert_eq!(m.bus.read32(CTRL).unwrap() & 0xfff, 3000);
+    assert_eq!(m.bus.adc_observation(8).unwrap().generation, 2);
+}
