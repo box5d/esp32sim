@@ -95,13 +95,25 @@ fn json_fields_are_top_level_and_strings_decode_unicode() {
 #[test]
 fn websocket_origin_requires_this_loopback_port_when_present() {
     for origin in ["http://127.0.0.1:8766", "http://localhost:8766"] {
-        assert!(local_origin(&format!("GET / HTTP/1.1\r\nOrigin: {origin}\r\n\r\n"), 8766));
+        assert!(local_origin(&format!("GET / HTTP/1.1\r\nOrigin: {origin}\r\n\r\n"), 8766, &[]));
     }
     for origin in ["null", "https://localhost:8766", "http://localhost:8765", "http://localhost.evil:8766", "http://127.0.0.1:8766/", "http://127.0.0.1:8766@evil"] {
-        assert!(!local_origin(&format!("GET / HTTP/1.1\r\nOrigin: {origin}\r\n\r\n"), 8766), "{origin}");
+        assert!(!local_origin(&format!("GET / HTTP/1.1\r\nOrigin: {origin}\r\n\r\n"), 8766, &[]), "{origin}");
     }
-    assert!(local_origin("GET / HTTP/1.1\r\n\r\n", 8766), "native tools omit Origin");
-    assert!(local_origin("GET / HTTP/1.1\r\nOrigin: http://localhost\r\n\r\n", 80));
+    assert!(local_origin("GET / HTTP/1.1\r\n\r\n", 8766, &[]), "native tools omit Origin");
+    assert!(local_origin("GET / HTTP/1.1\r\nOrigin: http://localhost\r\n\r\n", 80, &[]));
+}
+
+#[test]
+fn websocket_origin_honours_the_core3_studio_allowlist() {
+    let studio = ["http://127.0.0.1:8765".to_string(), "http://192.168.1.8:8765".to_string()];
+    assert!(local_origin("GET / HTTP/1.1\r\nOrigin: http://127.0.0.1:8765\r\n\r\n", 8088, &studio));
+    assert!(local_origin("GET / HTTP/1.1\r\nOrigin: http://192.168.1.8:8765\r\n\r\n", 8088, &studio));
+    // exact matches only: a modified host or scheme is still denied
+    for origin in ["http://127.0.0.1:8765.evil", "http://127.0.0.1:8765/x", "http://127.0.0.1:8766", "https://127.0.0.1:8765", "http://evil:8765"] {
+        assert!(!local_origin(&format!("GET / HTTP/1.1\r\nOrigin: {origin}\r\n\r\n"), 8088, &studio), "{origin}");
+    }
+    assert!(!local_origin("GET / HTTP/1.1\r\nOrigin: http://127.0.0.1:8765\r\n\r\n", 8088, &[]), "an absent allowlist trusts nobody");
 }
 
 #[test]
@@ -130,6 +142,36 @@ fn websocket_snapshot_precedes_live_frames_and_ping_gets_pong() {
     connection.expect_frame(10, b"ping payload");
     connection.expect_frame(10, b"");
     assert!(web.poll_incoming().is_empty());
+}
+
+#[test]
+fn fragmented_camera_picture_survives_a_control_frame_in_between() {
+    let web = socket_web();
+    let mut connection = Connection::new(&web);
+    connection.handshake(None);
+    assert!(connection.head().starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
+    // a [3][w u16 le][h u16 le][RGBA…] picture: mobile WebViews split these across frames
+    let mut picture = vec![3u8, 160, 0, 120, 0];
+    picture.resize(5 + 160 * 120 * 4, 0xa5);
+    let fragment = |opcode: u8, fin: bool, data: &[u8]| {
+        let mut bytes = frame(opcode, data);
+        if !fin { bytes[0] &= 0x7f; }
+        bytes
+    };
+    connection.socket.write_all(&fragment(2, false, &picture[..32768])).unwrap();
+    connection.socket.write_all(&fragment(9, true, b"ping between fragments")).unwrap();
+    connection.expect_frame(10, b"ping between fragments");
+    connection.socket.write_all(&fragment(0, false, &picture[32768..65536])).unwrap();
+    connection.socket.write_all(&fragment(0, true, &picture[65536..])).unwrap();
+    connection.socket.write_all(&fragment(1, false, b"hel")).unwrap();
+    connection.socket.write_all(&fragment(0, true, b"lo")).unwrap();
+    // an unfinished picture must not evict the delivered one
+    connection.socket.write_all(&fragment(2, false, &[3, 160, 0, 120])).unwrap();
+    // closing after the last frame gives a deterministic synchronization point
+    connection.socket.write_all(&fragment(8, true, &[])).unwrap();
+    drop(connection);
+    assert_eq!(web.poll_incoming(), vec!["hello"]);
+    assert_eq!(web.poll_incoming_bin(), vec![picture]);
 }
 
 #[test]
@@ -222,11 +264,11 @@ fn static_symlinks_cannot_escape_root() {
 fn websocket_origin_accepts_matching_forwarded_loopback_host() {
     for host in ["localhost:9000", "127.0.0.1:9000", "[::1]:9000", "localhost"] {
         let request = format!("GET /ws HTTP/1.1\r\nHost: {host}\r\nOrigin: http://{host}\r\n\r\n");
-        assert!(local_origin(&request, 8080), "{host}");
+        assert!(local_origin(&request, 8080, &[]), "{host}");
     }
     for host in ["localhost.evil:9000", "evil:9000", "127.0.0.1:9000@evil", "localhost:65536", "localhost:", "localhost:+80"] {
         let request = format!("GET /ws HTTP/1.1\r\nHost: {host}\r\nOrigin: http://{host}\r\n\r\n");
-        assert!(!local_origin(&request, 8080), "{host}");
+        assert!(!local_origin(&request, 8080, &[]), "{host}");
     }
-    assert!(!local_origin("GET /ws HTTP/1.1\r\nHost: localhost:9000\r\nOrigin: http://localhost:9001\r\n\r\n", 8080));
+    assert!(!local_origin("GET /ws HTTP/1.1\r\nHost: localhost:9000\r\nOrigin: http://localhost:9001\r\n\r\n", 8080, &[]));
 }

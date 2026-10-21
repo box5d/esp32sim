@@ -26,6 +26,8 @@ pub struct Shared {
     pub incoming: VecDeque<String>,
     pub incoming_bin: VecDeque<Vec<u8>>,
     pub web_dir: String,
+    /// exact origins from `ESP_EMU_WEB_ORIGIN` that may connect beyond this listener's own pages
+    pub trusted_origins: Vec<String>,
     pub hello: Vec<Vec<u8>>,     // frames sent to every new client (board description etc.)
 }
 
@@ -76,9 +78,13 @@ pub(crate) fn frame(opcode: u8, data: &[u8]) -> Vec<u8> {
 
 impl WebServer {
     pub fn start(port: u16, web_dir: String) -> std::io::Result<WebServer> {
-        let listener = TcpListener::bind(("127.0.0.1", port))?;
+        // Loopback remains the safe default. Board launchers that intentionally serve a UI to
+        // another device can opt into a LAN address.
+        let bind_addr = std::env::var("ESP_EMU_WEB_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let listener = TcpListener::bind((bind_addr.as_str(), port))?;
+        let trusted = trusted_origins();
         let port = listener.local_addr()?.port();
-        let shared = Arc::new(Mutex::new(Shared { queue: false, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir, hello: Vec::new() }));
+        let shared = Arc::new(Mutex::new(Shared { queue: false, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir, trusted_origins: trusted, hello: Vec::new() }));
         let s2 = shared.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
@@ -91,7 +97,7 @@ impl WebServer {
     /// A server with no sockets: everything sent is queued for whoever drains `take_outbox`
     /// (the wasm glue), and input arrives through `push_incoming*`. Same protocol, no transport.
     pub fn queued() -> WebServer {
-        WebServer { shared: Arc::new(Mutex::new(Shared { queue: true, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir: String::new(), hello: Vec::new() })), port: 0 }
+        WebServer { shared: Arc::new(Mutex::new(Shared { queue: true, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir: String::new(), trusted_origins: Vec::new(), hello: Vec::new() })), port: 0 }
     }
     pub fn send_text(&self, s: &str) { self.emit(1, s.as_bytes()); }
     pub fn send_binary(&self, d: &[u8]) { self.emit(2, d); }
@@ -131,8 +137,11 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 
 /// Browsers always send Origin; only pages served by this loopback listener may
 /// control it, including a forwarded loopback Host port. Native tools without Origin remain trusted local clients.
-fn local_origin(head: &str, port: u16) -> bool {
+/// The CoreS3 Studio serves itself from another local port (the console's launcher): exact origins
+/// listed in `trusted` (from `ESP_EMU_WEB_ORIGIN`) are equally accepted, never a prefix or wildcard.
+fn local_origin(head: &str, port: u16, trusted: &[String]) -> bool {
     let Some(origin) = header(head, "Origin") else { return true; };
+    if trusted.iter().any(|t| t == origin) { return true; }
     if let Some(host) = header(head, "Host") {
         let (name, port_text) = match host.rsplit_once(':') {
             Some((name, port)) => (name, Some(port)), None => (host, None),
@@ -171,6 +180,14 @@ fn http_response(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8])
     stream.write_all(body)
 }
 
+/// Operator-set serialization for the CoreS3 Studio's own listener: exact `http://host:port`
+/// origin strings, comma separated. Empty, malformed or absent values trust nobody extra.
+fn trusted_origins() -> Vec<String> {
+    std::env::var("ESP_EMU_WEB_ORIGIN").map_or_else(|_| Vec::new(), |list| {
+        list.split(',').map(|o| o.trim().to_string()).filter(|o| !o.is_empty()).collect()
+    })
+}
+
 fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
     let mut req = Vec::new();
     let mut buf = [0u8; 4096];
@@ -192,7 +209,8 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
         let _ = http_response(&mut stream, status, ctype, &body);
         return;
     };
-    if !stream.local_addr().is_ok_and(|addr| local_origin(&text, addr.port())) {
+    let trusted = shared.lock().unwrap().trusted_origins.clone();
+    if !stream.local_addr().is_ok_and(|addr| local_origin(&text, addr.port(), &trusted)) {
         let _ = http_response(&mut stream, "403 Forbidden", "text/plain", b"foreign Origin denied");
         return;
     }
@@ -216,20 +234,45 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
     // A TCP read may have included the first frame after the HTTP head.
     let mut input = req[head_end..].chain(&mut stream);
     let mut read_exact = |n: usize| -> Option<Vec<u8>> { let mut v = vec![0u8; n]; input.read_exact(&mut v).ok()?; Some(v) };
+    // A phone camera picture (77 KB of RGBA) arrives split across frames, possibly with a control
+    // frame between any two of them. Partial images must never replace the last complete one.
+    let mut fragmented: Option<(u8, Vec<u8>)> = None;
     while let Some(h) = read_exact(2) {
+        let fin = h[0] & 0x80 != 0;
         let op = h[0] & 0xf; let masked = h[1] & 0x80 != 0; let mut len = (h[1] & 0x7f) as u64;
-        if op >= 8 && (h[0] & 0x80 == 0 || len > 125) { break; }
+        if h[0] & 0x70 != 0 || (op >= 8 && (!fin || len > 125)) { break; }
         if len == 126 { let Some(e) = read_exact(2) else { break }; len = u16::from_be_bytes([e[0], e[1]]) as u64; }
         else if len == 127 { let Some(e) = read_exact(8) else { break }; len = u64::from_be_bytes(e.try_into().unwrap()); }
         let mask = if masked { let Some(m) = read_exact(4) else { break }; m } else { vec![0; 4] };
         if len > 8 << 20 { break; }
         let Some(mut data) = read_exact(len as usize) else { break };
         if masked { for (i, b) in data.iter_mut().enumerate() { *b ^= mask[i & 3]; } }
-        match op {
+        let (op, data) = match op {
             8 => break,
-            9 if tx.send(frame(10, &data)).is_err() => break,
+            9 => { if tx.send(frame(10, &data)).is_err() { break; } continue; }
+            10 => continue,
+            1 | 2 => {
+                if fragmented.is_some() { break; }
+                if !fin { fragmented = Some((op, data)); continue; }
+                (op, data)
+            }
+            0 => {
+                let Some((_, pending)) = fragmented.as_mut() else { break };
+                if pending.len() + data.len() > 8 << 20 { break; }
+                pending.extend_from_slice(&data);
+                if !fin { continue; }
+                fragmented.take().unwrap()
+            }
+            _ => break,
+        };
+        match op {
             1 => { shared.lock().unwrap().incoming.push_back(String::from_utf8_lossy(&data).to_string()); }
-            2 => { let mut sh = shared.lock().unwrap(); if sh.incoming_bin.len() < 4 { sh.incoming_bin.push_back(data); } }
+            2 => {
+                let mut sh = shared.lock().unwrap();
+                // the newest camera picture wins: drop any earlier one the guest has not applied yet
+                if data.first() == Some(&3) { sh.incoming_bin.retain(|b| b.first() != Some(&3)); sh.incoming_bin.push_back(data); }
+                else if sh.incoming_bin.len() < 4 { sh.incoming_bin.push_back(data); }
+            }
             _ => {}
         }
     }

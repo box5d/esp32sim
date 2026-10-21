@@ -17,7 +17,10 @@ fs.mkdirSync(out,{recursive:true});
    upstream.pipe(client);let pending=Buffer.alloc(0),headers=true;
    client.on('data',chunk=>{
     pending=Buffer.concat([pending,chunk]);
-    if(headers){const end=pending.indexOf('\r\n\r\n');if(end<0)return;upstream.write(pending.subarray(0,end+4));pending=pending.subarray(end+4);headers=false;}
+    if(headers){const end=pending.indexOf('\r\n\r\n');if(end<0)return;headers=false;
+     // the emulator only accepts pages on its own listener: the proxy speaks with its own Origin
+     let head=Buffer.from(pending.subarray(0,end+4).toString('latin1').replace(/Origin: http:\/\/(127\.0\.0\.1|localhost):\d+/i,`Origin: http://127.0.0.1:${socketPort}`),'latin1');
+     upstream.write(head);pending=pending.subarray(end+4);}
     while(pending.length>=2){
      const opcode=pending[0]&15,masked=!!(pending[1]&128);let length=pending[1]&127,header=2;
      if(length===126){if(pending.length<4)return;length=pending.readUInt16BE(2);header=4;}

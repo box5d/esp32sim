@@ -104,6 +104,8 @@ impl<S: Soc> Machine<S> {
             let picture = input.lock().unwrap().take();
             if let Some(picture) = picture {
                 if let Err(error) = self.bus.board().set_camera_picture(picture) { eprintln!("[camera] {error}"); }
+                // a browser picture must reach the preview even before the next guest frame
+                self.ws.cam_sent = false;
             }
         }
     }
