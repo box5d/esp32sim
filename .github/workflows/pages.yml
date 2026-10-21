@@ -26,6 +26,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build the wasm module
         run: tools/wasm-build.sh
+      - name: Production WASM sections (no DWARF, profile names retained)
+        run: node tools/check-wasm-sections.mjs web/wasm/esp32sim.wasm
       - name: Fetch the demo assets (mask ROM ELFs, xterm.js, the Linux-on-esp32-S3 image)
         run: tools/fetch-demo-assets.sh
       # pocket-tank's bootloader, partition table and app are committed under web/wasm/fw/public/ (its
@@ -37,7 +39,7 @@ jobs:
         run: |
           v=${GITHUB_SHA::8}
           sed -i "s|src=\"emu.js\"|src=\"emu.js?v=$v\"|; s|src=\"workbench.js\"|src=\"workbench.js?v=$v\"|; s|href=\"workbench.css\"|href=\"workbench.css?v=$v\"|" web/run.html
-          sed -i "s|new Worker('wasm/worker.js')|new Worker('wasm/worker.js?v=$v')|; s|fetch('wasm/esp32sim.wasm')|fetch('wasm/esp32sim.wasm?v=$v')|" web/emu.js
+          sed -i "s|'wasm/worker.js'|'wasm/worker.js?v=$v'|; s|fetch('wasm/esp32sim.wasm')|fetch('wasm/esp32sim.wasm?v=$v')|" web/emu.js
           test "$(grep -o "v=$v" web/run.html | wc -l)" -eq 3
           grep -c "v=$v" web/run.html web/emu.js
       - uses: actions/upload-pages-artifact@v3

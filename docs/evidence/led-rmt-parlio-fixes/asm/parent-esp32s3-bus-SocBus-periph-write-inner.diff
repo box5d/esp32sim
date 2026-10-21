@@ -1,0 +1,12 @@
+--- parent
+
++++ head
+
+@@ -1468,5 +1468,5 @@
+
+ and	w1, w20, #0xffc
+ mov	x2, x5
+-bl	<<esp_periph::rmt::Rmt>::write>
++bl	<<esp_periph::rmt::RmtDma as esp_periph::device::Device>::write>
+ b	<<esp32s3::bus::SocBus>::periph_write_inner>
+ mov	w8, #0x2390

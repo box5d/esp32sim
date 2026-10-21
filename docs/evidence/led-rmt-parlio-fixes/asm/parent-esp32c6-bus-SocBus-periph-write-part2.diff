@@ -1,0 +1,294 @@
++b.ne	<<esp32c6::bus::SocBus>::periph_write>
++str	w5, [x19, #0x1e14]
++b	<<esp32c6::bus::SocBus>::periph_write>
++add	x0, x19, #0xcf8
++and	w1, w28, #0xffc
++mov	x2, x5
++bl	<<esp_periph::spi_mem::SpiMem as esp_periph::device::Device>::write>
++and	w23, w0, #0xff
++b	<<esp32c6::bus::SocBus>::periph_write>
++and	w1, w28, #0xffc
++mov	x0, x19
++mov	x2, x5
++bl	<<esp_periph::i2c::I2c as esp_periph::device::Device>::write>
++b	<<esp32c6::bus::SocBus>::periph_write>
++mov	w8, #0x20d0
++add	x0, x19, x8
++and	w1, w28, #0xffc
++mov	x2, x5
++bl	<<esp_periph::systimer::Systimer as esp_periph::device::Device>::write>
++b	<<esp32c6::bus::SocBus>::periph_write>
++add	x0, x19, #0x598
++and	w1, w28, #0xffc
++mov	x2, x5
++bl	<<esp_periph::timg::TimerGroup as esp_periph::device::Device>::write>
++b	<<esp32c6::bus::SocBus>::periph_write>
++add	x0, x19, #0xe70
++and	w1, w28, #0xffc
++mov	x2, x5
++bl	<<esp_periph::aes::Aes as esp_periph::device::Device>::write>
++b	<<esp32c6::bus::SocBus>::periph_write>
+ mov	w8, #0x18e8
+ add	x0, x19, x8
+@@ -1217,55 +1281,24 @@
+
+ bl	<<esp_periph::gpspi::GpSpi as esp_periph::device::Device>::write>
+ b	<<esp32c6::bus::SocBus>::periph_write>
+-ldr	x1, [x19, #0x1e40]
+-lsr	w0, w20, #2
+-cmp	x1, x0
+-b.ls	<<esp32c6::bus::SocBus>::periph_write>
+-ldr	x8, [x19, #0x1e38]
+-str	w5, [x8, x0, lsl #2]
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-add	x0, x19, #0xcf8
+-and	w1, w28, #0xffc
+-mov	x2, x5
+-bl	<<esp_periph::spi_mem::SpiMem as esp_periph::device::Device>::write>
+-and	w23, w0, #0xff
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-and	w1, w28, #0xffc
+-mov	x0, x19
+-mov	x2, x5
+-bl	<<esp_periph::i2c::I2c as esp_periph::device::Device>::write>
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-mov	w8, #0x20d0
+-add	x0, x19, x8
+-and	w1, w28, #0xffc
+-mov	x2, x5
+-bl	<<esp_periph::systimer::Systimer as esp_periph::device::Device>::write>
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-add	x0, x19, #0x598
+-and	w1, w28, #0xffc
+-mov	x2, x5
+-bl	<<esp_periph::timg::TimerGroup as esp_periph::device::Device>::write>
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-add	x0, x19, #0xd80
+-and	w1, w28, #0xffc
+-mov	x2, x5
+-bl	<<esp_periph::sha::Sha as esp_periph::device::Device>::write>
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-add	x0, x19, #0xe70
+-and	w1, w28, #0xffc
+-mov	x2, x5
+-bl	<<esp_periph::aes::Aes as esp_periph::device::Device>::write>
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-lsr	w0, w20, #2
+-ldr	x1, [x19, #0xc50]
+-cmp	x1, x0
+-b.ls	<<esp32c6::bus::SocBus>::periph_write>
+-ldr	x8, [x19, #0xc48]
+-str	w5, [x8, x0, lsl #2]
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-subs	w1, w20, #0x400
+-b.hs	<<esp32c6::bus::SocBus>::periph_write>
+-mov	w8, #0x1e48
+-add	x0, x19, x8
+-orr	w1, w20, #0x400
++mov	x20, x24
++ldr	x8, [x19, #0x2158]
++add	x0, x8, #0x80
++and	w1, w28, #0xffc
++mov	x2, x5
++bl	<<esp32c6::ecc::Ecc as esp_periph::device::Device>::write>
++ldr	x8, [x19, #0x2158]
++ldp	w9, w8, [x8, #0xe4]
++and	w23, w8, w9
++ldr	x24, [x19, #0x1f20]
++cbz	x24, <<esp32c6::bus::SocBus>::periph_write>
++mov	x8, #0x0
++ldr	x9, [x19, #0x1f18]
++lsl	x10, x24, #2
++ldr	w11, [x9, x8, lsl #2]
++cmp	w11, #0x8b
++b.eq	<<esp32c6::bus::SocBus>::periph_write>
++add	x8, x8, #0x1
++subs	x10, x10, #0x4
++b.ne	<<esp32c6::bus::SocBus>::periph_write>
+ b	<<esp32c6::bus::SocBus>::periph_write>
+ and	w8, w28, #0xc00
+@@ -1274,5 +1307,5 @@
+
+ cmp	w8, #0x800
+ b.ne	<<esp32c6::bus::SocBus>::periph_write>
+-sub	w8, w20, #0x800
++sub	w8, w11, #0x800
+ cmp	w8, #0x1d4
+ b.eq	<<esp32c6::bus::SocBus>::periph_write>
+@@ -1284,4 +1317,15 @@
+
+ str	w5, [x8, x0, lsl #2]
+ b	<<esp32c6::bus::SocBus>::periph_write>
++subs	w1, w11, #0x800
++b.lo	<<esp32c6::bus::SocBus>::periph_write>
++mov	w8, #0x1e90
++add	x0, x19, x8
++mov	x2, x5
++bl	<<esp32c6::periph::AnaMst as esp_periph::device::Device>::write>
++b	<<esp32c6::bus::SocBus>::periph_write>
++cmp	w11, #0xc00
++b.lo	<<esp32c6::bus::SocBus>::periph_write>
++mov	w8, #0x1e48
++b	<<esp32c6::bus::SocBus>::periph_write>
+ ldr	x1, [x19, #0x1c38]
+ cmp	x1, x0
+@@ -1290,15 +1334,11 @@
+
+ str	w5, [x8, x0, lsl #2]
+ b	<<esp32c6::bus::SocBus>::periph_write>
+-cmp	w20, #0x8c
+-b.eq	<<esp32c6::bus::SocBus>::periph_write>
+-cmp	w20, #0xa8
++cmp	w11, #0x8c
++b.eq	<<esp32c6::bus::SocBus>::periph_write>
++cmp	w11, #0xa8
+ b.ne	<<esp32c6::bus::SocBus>::periph_write>
+ ldr	w8, [x19, #0x1e1c]
+ bic	w8, w8, w5
+ str	w8, [x19, #0x1e1c]
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-cmp	w20, #0xc00
+-b.lo	<<esp32c6::bus::SocBus>::periph_write>
+-mov	w8, #0x1e48
+ b	<<esp32c6::bus::SocBus>::periph_write>
+ cmp	w8, #0x42
+@@ -1331,9 +1371,23 @@
+
+ strb	w8, [x19, #0x2cf]
+ b	<<esp32c6::bus::SocBus>::periph_write>
++mov	x20, x24
++mov	w23, #0x0
++ldr	x24, [x19, #0x1f20]
++cbz	x24, <<esp32c6::bus::SocBus>::periph_write>
++mov	x8, #0x0
++ldr	x9, [x19, #0x1f18]
++lsl	x10, x24, #2
++ldr	w11, [x9, x8, lsl #2]
++cmp	w11, #0x15
++b.eq	<<esp32c6::bus::SocBus>::periph_write>
++add	x8, x8, #0x1
++subs	x10, x10, #0x4
++b.ne	<<esp32c6::bus::SocBus>::periph_write>
++b	<<esp32c6::bus::SocBus>::periph_write>
+ mov	w8, #0x1e48
+-sub	w1, w20, #0x400
++sub	w1, w11, #0x400
+ add	x0, x19, x8
+ b	<<esp32c6::bus::SocBus>::periph_write>
+-cmp	w20, #0xc00
++cmp	w11, #0xc00
+ b.lo	<<esp32c6::bus::SocBus>::periph_write>
+ mov	w8, #0x1e48
+@@ -1360,4 +1414,6 @@
+
+ mov	x24, x20
+ mov	x28, x22
++mov	w22, #0x6034
++movk	w22, #0x6009, lsl #16
+ tst	w23, #0xfffffffd
+ b.eq	<<esp32c6::bus::SocBus>::periph_write>
+@@ -1371,17 +1427,4 @@
+
+ mov	w8, #0x1
+ strb	w8, [x25, #0x7f9]
+-b	<<esp32c6::bus::SocBus>::periph_write>
+-add	x0, x9, x8, lsl #2
+-mvn	x8, x8
+-add	x8, x24, x8
+-lsl	x2, x8, #2
+-add	x1, x0, #0x4
+-bl	<DATA>
+-sub	x8, x24, #0x1
+-str	x8, [x19, #0x1f20]
+-ldr	w8, [x19, #0x1fa8]
+-bfi	w8, w23, #12, #1
+-str	w8, [x19, #0x1fa8]
+-mov	x24, x20
+ b	<<esp32c6::bus::SocBus>::periph_write>
+ mov	w10, #0xff
+@@ -1404,7 +1447,32 @@
+
+ orr	w8, w8, w9
+ str	w8, [x19, #0x1fa4]
+-mov	x24, x26
+-mov	x26, x28
+-mov	x28, x22
++ldr	x24, [sp, #0x8]
++b	<<esp32c6::bus::SocBus>::periph_write>
++add	x0, x9, x8, lsl #2
++mvn	x8, x8
++add	x8, x24, x8
++lsl	x2, x8, #2
++add	x1, x0, #0x4
++bl	<DATA>
++sub	x8, x24, #0x1
++str	x8, [x19, #0x1f20]
++ldr	w8, [x19, #0x1fa4]
++and	w8, w8, #0x7fffffff
++orr	w8, w8, w23
++str	w8, [x19, #0x1fa4]
++mov	x24, x20
++b	<<esp32c6::bus::SocBus>::periph_write>
++add	x0, x9, x8, lsl #2
++mvn	x8, x8
++add	x8, x24, x8
++lsl	x2, x8, #2
++add	x1, x0, #0x4
++bl	<DATA>
++sub	x8, x24, #0x1
++str	x8, [x19, #0x1f20]
++ldr	w8, [x19, #0x1fa8]
++bfi	w8, w23, #12, #1
++str	w8, [x19, #0x1fa8]
++mov	x24, x20
+ b	<<esp32c6::bus::SocBus>::periph_write>
+ cmp	w8, #0x43
+@@ -1430,5 +1498,5 @@
+
+ str	xzr, [x19, #0x1e8]
+ b	<<esp32c6::bus::SocBus>::periph_write>
+-sub	w8, w20, #0xc
++sub	w8, w11, #0xc
+ cmp	w8, #0x7d
+ b.hs	<<esp32c6::bus::SocBus>::periph_write>
+@@ -1523,5 +1591,5 @@
+
+ bl	<std::io::stdio::_eprint>
+ b	<<esp32c6::bus::SocBus>::periph_write>
+-sub	w8, w20, #0x90
++sub	w8, w11, #0x90
+ cmp	w8, #0xd
+ b.hs	<<esp32c6::bus::SocBus>::periph_write>
+@@ -1534,7 +1602,14 @@
+
+ str	w8, [x19, #0x1e28]
+ b	<<esp32c6::bus::SocBus>::periph_write>
++and	w1, w28, #0xfffffffc
++mov	x0, x19
++bl	<<esp32c6::bus::SocBus>::sha_dma_write>
++lsr	w8, w28, #12
++sub	w9, w8, #0x60, lsl #12
++cmp	w9, #0x15
++b.ne	<<esp32c6::bus::SocBus>::periph_write>
+ mov	x0, x19
+ mov	x1, x27
+-bl	<<esp32c6::bus::SocBus>::sha_dma_write>
++bl	<<esp32c6::bus::SocBus>::parlio_dma_write>
+ ldr	x4, [x19, #0x668]
+ ldr	x5, [x19, #0x660]
+@@ -1637,5 +1712,5 @@
+
+ strb	wzr, [x19, #0x2cf]
+ b	<<esp32c6::bus::SocBus>::periph_write>
+-lsr	w0, w20, #2
++lsr	w0, w11, #2
+ ldr	x1, [x19, #0x1d88]
+ cmp	x1, x0
+@@ -1654,5 +1729,5 @@
+
+ b	<<esp32c6::bus::SocBus>::periph_write>
+ mov	w11, #0x8
+-mov	x26, x20
++mov	x26, x24
+ add	x10, x10, x11
+ and	x10, x10, x9

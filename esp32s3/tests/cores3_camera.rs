@@ -11,7 +11,7 @@ fn phone_picture_uses_the_format_selected_over_sccb() {
         assert!(sensor.write(reg));
         assert!(sensor.write(value));
     };
-    board.set_camera_picture(Picture { w: 1, h: 1, rgb: vec![255, 0, 0] });
+    board.set_camera_picture(Picture { w: 1, h: 1, rgb: vec![255, 0, 0] }).unwrap();
     let (_, _, yuv) = board.camera_frame().unwrap();
     // GC0308 OUTPUT_FMT on page 0: RGB565, as configured by CoreS3 UserDemo.
     write(0xfe, 0);
@@ -30,6 +30,6 @@ fn phone_picture_uses_the_format_selected_over_sccb() {
     assert_eq!(board.camera_frame().unwrap().2, yuv);
 
     write(0x24, 0xa6);
-    board.set_camera_picture(Picture { w: 1, h: 1, rgb: vec![0, 255, 0] });
+    board.set_camera_picture(Picture { w: 1, h: 1, rgb: vec![0, 255, 0] }).unwrap();
     assert!(board.camera_frame().unwrap().2.chunks_exact(2).all(|pixel| pixel == [0x07, 0xe0]));
 }

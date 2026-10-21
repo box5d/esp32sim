@@ -7,12 +7,28 @@ checked-in oracle or is `#[ignore]`d with the reason in its name.
 
 | layer | where | what it pins |
 | --- | --- | --- |
-| decoders and encoder | `xtensa-lx7/tests/objdump_diff.rs`, `riscv-rv32/tests/objdump_diff.rs`, `emu-core/src/jit_a64.rs` | every instruction of 8000 sampled objdump lines per architecture (app + mask ROM, `tests/corpus/`) decodes to objdump's text; every AArch64 encoding matches what clang assembled (`emu-core/tests/fixtures`) |
+| decoders and encoder | `xtensa-lx7/tests/objdump_diff.rs`, `riscv-rv32/tests/objdump_diff.rs`, `emu-core/src/jit_a64.rs` | checked-in sampled objdump corpora (app + mask ROM, `tests/corpus/`) decode to objdump's text, with PIE comparisons excluded by the Xtensa test; every AArch64 encoding in the fixture matches what clang assembled (`emu-core/tests/fixtures`) |
 | core semantics | `xtensa-lx7/tests/semantics.rs`, `riscv-rv32/tests/semantics.rs` | on a flat RAM: register-window overflow at the instruction that touches the wrapped window, zero-overhead loops, a CCOMPARE interrupt landing on the same instruction through `step`, the block interpreter and the JIT, INTLEVEL masking, `waiti`; RV32 vectored interrupts, `mret`, `ecall`/`ebreak`; and the oracle property — the three execution paths leave identical state |
 | peripherals | `esp-periph/tests/devices.rs` | systimer one-shot and periodic alarms and their deadlines, TIMG prescaler/alarm/autoreload, GPIO edge and level interrupts, USB SOF cadence per chip clock, the I2S rate from the clock registers; the `device_set!` table from outside: ranges, `delta`, `alias`, the generic fallback, source numbering, tick delivery per clock domain, the deadline minimum, `--debug` fan-out |
+| audio source clocks | `cli/tests/pcm_sources.rs`, `cli/tests/adc_stream.rs` | pin routing, independent source clocks, DMA stalls, resets and exact ADC raw counts at all attenuations; no local firmware required |
+| microphone input | `cli/tests/i2s_rx.rs`, `esp-periph/src/i2s/rx.rs` | three-chip MMIO to guest DMA, C3 interrupt layout, descriptor ownership/EOF, stereo packing, clocks, reset persistence and unsupported modes; no firmware or home-directory inputs |
 | machine | `esp32s3/tests/machine.rs`, `esp-soc/tests/parsers.rs` | idle cores skip time, core 1 runs when SYSTEM releases it, what a chip reset keeps, scripts against the board's pin names and encoder, console backlogs and masks, observers on both paths; the ELF/app-image/picture loaders never panic on random, truncated or hostile input |
 | whole runs | `cli/tests/goldens.rs`, `wasm/tests/abi.rs` | the goldens below; the wasm C ABI driven natively for both chips, checking the web protocol's `board`, `serial`, `stat`, frame, audio and ring messages |
 | the wasm build itself | `tools/wasm-test.mjs` | the real `esp32sim.wasm` under Node, driven through the page's firmware manifests (`web/wasm/fw/*.json`): boot, run, drain the outbox, expect the board message and the console line, no panic — the only layer that sees a wasm-only abort (a std that panics where it used to return nothing took every demo down once) |
+
+GPIO feedback and release checks live in `tests/gpio_feedback.rs`, included by all three
+chip crates, and `esp-periph/tests/gpio_release.rs`. C6 `spi_routes.rs` covers physical
+SPI selection. They use register writes and board models without firmware fixtures;
+[EX217](../docs/evidence/gpio-input-feedback/README.md) records their mutation checks.
+
+S3 PHY completion is covered without firmware by `esp32s3/tests/wifi_phy.rs`:
+no AP, idle/associated AP, AP removal and register writeback must not gate FE
+completion or create a network/link. `cli/tests/wifi_phy.rs` additionally boots an
+unchanged public Robot Face starter; its `external_` tests are ignored until
+`ROBOT_FACE_FW_DIR` names bootloader.bin, partitions.bin, firmware.bin and
+esp32s3_rev0_rom.elf. They pin no-AP progress within 960,000,000 cycles, offline
+timeout at 20 nominal seconds, matching-AP connection and mismatched-AP wait.
+No firmware binary is added here; these are developer-input tests, not CI goldens.
 
 The **golden-output tests** (`cli/tests/goldens.rs`) are the
 regression bar for everything else: they run the committed demo firmware from the mask ROM and
@@ -44,15 +60,21 @@ output is left next to the golden as `*.actual` for diffing.
 | --- | --- |
 | `atech-script1.*` | Pocket Synth: buttons, encoder, serial command, ST7735 over bit-banged SPI, WS2812 via RMT, SID voice on I2S/GDMA; re-run with `--no-jit` (the JIT's oracle) |
 | `atech-sid.*` | the cRSID C64 jukebox: a 6502 + SID inside the emulated S3 |
-| `panel-sid.*` | Touch-LCD-4B energy panel: PSRAM, LCD_CAM RGB frames, GT911 touch and TCA9554 over I2C, ES8311 on I2S, a demo partition via `--flash-at` |
+| `panel-sid.*` | Touch-LCD-4B energy panel: PSRAM, LCD_CAM RGB frames, GT911 touch and TCA9554 over I2C, ES8311 on I2S, a demo partition via `--flash-at`; console, audio, instructions, stop interrupt totals and per-source counts. EX216 intentionally adds I2C transfer time. |
+| `hello-classic.*` | classic ECO3 ROM → bootloader → app; console and interrupt totals/per-source counts at the selected CPU frequency, reproducible IDF 5.5.4 fixture; `classic_reset_clock_and_flash_size` additionally checks 25 emulated seconds and 16 MB JEDEC retention through two resets |
 | `hello-s3.*` | stock ESP-IDF hello_world on UART0, ROM → bootloader → app_main |
 | `hello-c3.*` | the same on the ESP32-C3 (RISC-V), with the MAC/reset cause/straps of the real module in `hw/c3-hello-world-real.txt`, through `esp32sim-c3` and `esp32sim --chip c3` |
 | `hello-c6.*` | the same on the ESP32-C6 (RISC-V, RV32IMAC), with the identity of the Waveshare ESP32-C6-LCD-1.47 in `hw/c6-hello-world-real.txt`; the reboot variant also pins the ROM's `Saved PC` |
 | `energy-scan-c6.*` (`external_`) | the 802.15.4 energy scanner on the Waveshare board — its owner's firmware, `ENERGY_SCAN_DIR` points at the build: PHY up, no panic, ≥50 scans, the board's report, console and count |
+| `ble-advertiser-c3.*` | C3 original-controller advertising: console, BLE configuration, every observer PDU, exception and interrupt totals, per-source interrupt counts, and accounted instructions. The latter equal modeled cycles; timing regressions are checked by the interrupt report and directed tests. |
+| `ble-server-c3-*.console.txt`, `ble-server-c3-*.report.txt` | C3 original-controller scan, UUID read, timeout and normal disconnect/reconnect: guest console, exception/interrupt totals and per-source counts. Three scenarios cover empty-first and read-first timeout, and normal termination. |
+| `wifi-station-{s3,c3,c6}.*` | WiFi on all three chips: `examples/c6-wifi-station`, committed as `web/wasm/fw/public/*-wifi*` (rebuild in the example's README): the unmodified library scans, finds the virtual access point, joins through the WPA2 four-way handshake, takes a lease and gets five of five gateway pings. Pinned: the station's own lines (the same on every chip), the console, the end-of-run WiFi/network counts with the exception and interrupt counts, and the instruction count. On the C3 and C6 the instruction count is the cycle count, so a timing change in the WiFi model shows in the interrupt count |
+| `crypto-tls-{c3,c6}.*` | Unstubbed WPA2/DHCP then TLS 1.2 ECDHE-PSK P-256 with SHA DMA, C6 ECC and a checked 256-byte exchange in each direction. Public reproducible Arduino-ESP32 3.3.11 inputs in `examples/crypto-tls`; pins console, stop exception/interrupt totals, per-source counts and Wi-Fi/network reports. Memory-queue TLS peers; no external endpoint or cycle-derived golden. |
 | `cooja-echo.ndjson` (`cli/tests/cooja.rs`) | the Cooja-NG lock-step peer against a 32-instruction RV32 echo program: a hand-written NDJSON session with frames injected mid-slice; the echoes stamped at the `TX_START` cycle one air time after the frame went in, byte-identical twice over — no ROM, no toolchain |
 | `cooja-ack.ndjson` (`cli/tests/cooja.rs`) | the stage-2 radio under a 55-instruction RV32 program with an address and auto-ACK: an AR frame to it is acknowledged by hardware exactly 192 µs after its end and echoed with AR on `ACK_TX_DONE`; the injected ACK is taken; without one the hardware timeout aborts; a frame to another address is filtered; a broadcast is echoed |
 | `cooja-nullnet-c6.ndjson` (`external_`) | the same peer around Contiki-NG on ESP-IDF (`CONTIKI_C6_DIR` = esp32-contiki's `build-nullnet`): the periodic broadcasts as `tx` events at their `TX_START`, an injected broadcast reaching the driver after its air time and Contiki's nullnet callback, two sessions byte-identical |
 | `atech-script1` with observers | the same run with `--profile-blocks --coverage --irq-latency --vcd` attached must be byte-identical and produce every report |
 
-CI (`.github/workflows/ci.yml`) downloads the ROM ELFs from espressif/esp-rom-elfs and runs the
-full set on every push and pull request.
+CI ([workflow](../.github/workflows/ci.yml)) gets the ROM ELFs with `tools/fetch-rom-elfs.sh`, which pins
+the espressif/esp-rom-elfs release and each ELF's SHA-256 (the same script fills `web/wasm/fw/`), and runs the hermetic and golden tests on every push and pull request. It excludes tests named
+`external_*`; it does not rerun hardware comparisons or full external objdump listings.

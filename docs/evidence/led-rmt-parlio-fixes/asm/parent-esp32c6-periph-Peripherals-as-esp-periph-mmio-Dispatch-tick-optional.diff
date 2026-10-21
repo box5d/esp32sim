@@ -1,0 +1,27 @@
+--- parent
+
++++ head
+
+@@ -31,13 +31,15 @@
+
+ ldr	w1, [x8, x23, lsl #2]
+ cmp	w1, #0x13
+-b.gt	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
++b.le	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
++cmp	w1, #0x14
++b.eq	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
++cmp	w1, #0x15
++b.eq	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
++cmp	w1, #0x8b
++b.ne	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
++b	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
+ cmp	w1, #0x7
+ b.eq	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
+ cmp	w1, #0xc
+-b.ne	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
+-b	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
+-cmp	w1, #0x14
+-b.eq	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
+-cmp	w1, #0x8b
+ b.ne	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>
+ b	<<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional>

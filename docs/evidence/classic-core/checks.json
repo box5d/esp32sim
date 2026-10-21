@@ -1,0 +1,49 @@
+{
+  "upstream_base": "f1569101",
+  "validated_source": "0c1e324bc783ea2535b2114352442ea5a623402c",
+  "test_followup": "XTAL APB probe, phase/deadline and classic golden reruns",
+  "clippy_native": "pass",
+  "clippy_wasm": "pass",
+  "test_ci": {
+    "passed": 848,
+    "failed": 0,
+    "ignored": 0
+  },
+  "test_plain": {
+    "passed": 820,
+    "failed": 0,
+    "ignored": 46
+  },
+  "wasm_scenarios": 8,
+  "privacy": "pass",
+  "mutations": {
+    "killed": 36,
+    "total": 36
+  },
+  "goldens": "All bytes unchanged from reviewed 9580363f; classic golden and three-boot checks pass",
+  "reset_times_before_seconds": [
+    7.351,
+    14.702,
+    22.052
+  ],
+  "reset_times_after_seconds": [
+    11.043,
+    22.086
+  ],
+  "flash_16mb_boots": 3,
+  "cpu_benchmark_run": false,
+  "disassembly": {
+    "base": "f1569101",
+    "source": "0c1e324bc783ea2535b2114352442ea5a623402c",
+    "same": 119,
+    "different": 0,
+    "missing": 0
+  },
+  "validated_branch": "esp32-classic-2-core-apb",
+  "apb_probe": {
+    "xtal_lact_divider": 20,
+    "ticks_per_ms_before": 4000,
+    "ticks_per_ms_after": 2000,
+    "pll_apb_hz": 80000000
+  }
+}

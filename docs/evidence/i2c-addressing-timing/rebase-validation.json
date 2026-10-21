@@ -1,0 +1,341 @@
+{
+  "base": "ff64902ab01f91f7e57e00d213412a11cc1999fc",
+  "candidate": "rebased I2C implementation; receipt-only changes after validation",
+  "build": "cargo +1.99.0 build --release --bins",
+  "disassembly": "llvm-objdump -d --demangle --no-show-raw-insn; asmcmp.py address normalization",
+  "asm": {
+    "s3": [
+      {
+        "function": "<esp32s3::board::waveshare_amoled18::WaveshareAmoled18V2 as esp_soc::board::BoardModel>::next_deadline",
+        "main_instructions": 14,
+        "branch_instructions": 14,
+        "identical": true
+      },
+      {
+        "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::tick",
+        "main_instructions": 26,
+        "branch_instructions": 26,
+        "identical": true
+      },
+      {
+        "function": "<esp32s3::bus::SocBus>::periph_read",
+        "main_instructions": 808,
+        "branch_instructions": 808,
+        "identical": true
+      },
+      {
+        "function": "<esp32s3::bus::SocBus>::periph_write_inner",
+        "main_instructions": 1663,
+        "branch_instructions": 1742,
+        "identical": false
+      },
+      {
+        "function": "<esp32s3::bus::SocBus>::refresh_tick_budget",
+        "main_instructions": 278,
+        "branch_instructions": 282,
+        "identical": false
+      },
+      {
+        "function": "<esp32s3::bus::SocBus>::tick_impl",
+        "main_instructions": 3667,
+        "branch_instructions": 3673,
+        "identical": false
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::run_modeled",
+        "main_instructions": 3378,
+        "branch_instructions": 3378,
+        "identical": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::run_unmodeled::<false>",
+        "main_instructions": 3311,
+        "branch_instructions": 3311,
+        "identical": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::step_core",
+        "main_instructions": 990,
+        "branch_instructions": 990,
+        "identical": true
+      },
+      {
+        "function": "<xtensa_lx7::state::Cpu as emu_core::core::Core>::run::<esp32s3::bus::SocBus>",
+        "main_instructions": 948,
+        "branch_instructions": 948,
+        "identical": true
+      },
+      {
+        "function": "esp32sim::run::<esp32s3::soc::S3>",
+        "main_instructions": 6985,
+        "branch_instructions": 6985,
+        "identical": true
+      }
+    ],
+    "c3": [
+      {
+        "function": "<esp32c3::ble_lc::BleLc as esp_periph::device::Device>::next_deadline",
+        "main_instructions": 122,
+        "branch_instructions": 0,
+        "identical": false
+      },
+      {
+        "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::tick",
+        "main_instructions": 279,
+        "branch_instructions": 279,
+        "identical": true
+      },
+      {
+        "function": "<esp32c3::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+        "main_instructions": 200,
+        "branch_instructions": 194,
+        "identical": false
+      },
+      {
+        "function": "<esp32c3::bus::SocBus>::pending_work",
+        "main_instructions": 3062,
+        "branch_instructions": 3062,
+        "identical": true
+      },
+      {
+        "function": "<esp32c3::bus::SocBus>::periph_read",
+        "main_instructions": 190,
+        "branch_instructions": 190,
+        "identical": true
+      },
+      {
+        "function": "<esp32c3::bus::SocBus>::periph_write",
+        "main_instructions": 1660,
+        "branch_instructions": 1691,
+        "identical": false
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::run",
+        "main_instructions": 4319,
+        "branch_instructions": 4319,
+        "identical": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::run_unmodeled::<false>",
+        "main_instructions": 1048,
+        "branch_instructions": 1048,
+        "identical": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::step_core",
+        "main_instructions": 463,
+        "branch_instructions": 463,
+        "identical": true
+      },
+      {
+        "function": "esp32sim::run::<esp32c3::soc::C3>",
+        "main_instructions": 3805,
+        "branch_instructions": 3805,
+        "identical": true
+      }
+    ],
+    "c6": [
+      {
+        "function": "<esp32c6::board::WaveshareC6Lcd147 as esp_soc::board::BoardModel>::next_deadline",
+        "main_instructions": 2,
+        "branch_instructions": 2,
+        "identical": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick",
+        "main_instructions": 2036,
+        "branch_instructions": 2042,
+        "identical": false
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+        "main_instructions": 290,
+        "branch_instructions": 298,
+        "identical": false
+      },
+      {
+        "function": "<esp32c6::bus::SocBus>::pending_work",
+        "main_instructions": 731,
+        "branch_instructions": 731,
+        "identical": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus>::periph_read",
+        "main_instructions": 225,
+        "branch_instructions": 225,
+        "identical": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus>::periph_write",
+        "main_instructions": 1660,
+        "branch_instructions": 1741,
+        "identical": false
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run",
+        "main_instructions": 4325,
+        "branch_instructions": 4325,
+        "identical": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run_unmodeled::<false>",
+        "main_instructions": 1053,
+        "branch_instructions": 1053,
+        "identical": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::step_core",
+        "main_instructions": 465,
+        "branch_instructions": 465,
+        "identical": true
+      }
+    ]
+  },
+  "layout": {
+    "all_equal": true,
+    "entry_count": 75,
+    "field_count": 72,
+    "main_and_branch": {
+      "SocBus.size": 12408,
+      "SocBus.ble": 9360,
+      "SocBus.sram": 9632,
+      "SocBus.irom": 9656,
+      "SocBus.drom": 9680,
+      "SocBus.rtc_fast": 9704,
+      "SocBus.rtc_slow": 9728,
+      "SocBus.flash": 9752,
+      "SocBus.psram": 9776,
+      "SocBus.mmu": 10256,
+      "SocBus.periph": 0,
+      "SocBus.board": 10232,
+      "SocBus.uart_pins": 12392,
+      "SocBus.cycles": 12304,
+      "SocBus.last_fault": 10168,
+      "SocBus.spi2_dma_fault": 10208,
+      "SocBus.spi2_timing": 12393,
+      "SocBus.spi2_scheduled": 10008,
+      "SocBus.spi2_pins": 10176,
+      "SocBus.irq_dirty": 12394,
+      "SocBus.gpio_events": 9872,
+      "SocBus.debug": 12312,
+      "SocBus.tlb": 9800,
+      "SocBus.page_ver": 9824,
+      "SocBus.ver_base": 12352,
+      "SocBus.flash_epoch": 12336,
+      "SocBus.code_blk": 9848,
+      "SocBus.tick_pending": 12380,
+      "SocBus.defer_mmio": 12395,
+      "SocBus.approximate_cache": 9896,
+      "SocBus.approximate_cache_pending": 12388,
+      "SocBus.approximate_cache_fast_internal": 12397,
+      "SocBus.approximate_cache_inline": 12398,
+      "SocBus.approximate_cache_yield_miss": 12399,
+      "SocBus.cache_resource": 10096,
+      "SocBus.fetch_cache": 10248,
+      "SocBus.board_edges": 12400,
+      "I2c.size": 184,
+      "Peripherals.size": 9360,
+      "Peripherals.usb": 368,
+      "Peripherals.uart": 544,
+      "Peripherals.systimer": 9104,
+      "Peripherals.timg": 856,
+      "Peripherals.intmatrix": 1112,
+      "Peripherals.gpio": 1944,
+      "Peripherals.rtc": 3520,
+      "Peripherals.efuse": 3752,
+      "Peripherals.system": 3776,
+      "Peripherals.extmem": 3808,
+      "Peripherals.spi0": 3832,
+      "Peripherals.spi1": 3968,
+      "Peripherals.i2c": 0,
+      "Peripherals.lcd_cam": 4104,
+      "Peripherals.spi2": 4288,
+      "Peripherals.pcnt": 4456,
+      "Peripherals.wifi": 4576,
+      "Peripherals.fe": 9096,
+      "Peripherals.aes": 5256,
+      "Peripherals.rsa": 5400,
+      "Peripherals.sha": 5488,
+      "Peripherals.wdev": 5728,
+      "Peripherals.i2c_mst": 5760,
+      "Peripherals.gdma": 5832,
+      "Peripherals.i2s0": 6328,
+      "Peripherals.i2s1": 6456,
+      "Peripherals.rmt": 6584,
+      "Peripherals.io_mux": 8488,
+      "Peripherals.misc": 8512,
+      "Peripherals.fake_reads": 9240,
+      "Peripherals.clock": 9288,
+      "Peripherals.spi_exec": 9352,
+      "Peripherals.last_status": 9336,
+      "Peripherals.intmatrix_dirty": 9353,
+      "Peripherals.ledc": 8680,
+      "Peripherals.mcpwm": 8824
+    }
+  },
+  "tick_call_multisets": {
+    "s3": {
+      "main": 164,
+      "branch": 164,
+      "equal": true
+    },
+    "c6": {
+      "main": 88,
+      "branch": 88,
+      "equal": true
+    }
+  },
+  "pocket_tank": {
+    "base": "ff64902a",
+    "args": [
+      "--boot",
+      "rom",
+      "--flash-mb",
+      "16",
+      "--board",
+      "waveshare-amoled18-v2",
+      "--max-seconds",
+      "30",
+      "--no-dump",
+      "--psram-mb",
+      "8",
+      "--rom",
+      "inputs/esp32s3_rev0_rom.elf",
+      "--bootloader",
+      "inputs/public/pocket-tank-bootloader.bin",
+      "--ptable",
+      "inputs/public/pocket-tank-ptable.bin",
+      "--app",
+      "inputs/public/pocket-tank.bin",
+      "--flash-at",
+      "0x290000=inputs/local/model_q4.bin"
+    ],
+    "runs": [
+      {
+        "label": "main",
+        "exit": 0,
+        "console_sha256": "c3776029dd98a1cd1ad148aa3cfdbd6639a49e465157214c2f1ca34ac5e2bbd5",
+        "instructions": 10073833665,
+        "cores": [
+          4446180034,
+          5627653631
+        ],
+        "exceptions": 1006391,
+        "interrupts": 95179
+      },
+      {
+        "label": "control",
+        "exit": 0,
+        "console_sha256": "c3776029dd98a1cd1ad148aa3cfdbd6639a49e465157214c2f1ca34ac5e2bbd5",
+        "instructions": 10073833665,
+        "cores": [
+          4446180034,
+          5627653631
+        ],
+        "exceptions": 1006391,
+        "interrupts": 95179
+      }
+    ],
+    "console_and_instructions_equal": true
+  }
+}

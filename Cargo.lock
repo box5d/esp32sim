@@ -4,26 +4,36 @@ version = 4
 
 [[package]]
 name = "emu-core"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "esp-periph"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
 ]
 
 [[package]]
 name = "esp-soc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
  "esp-periph",
 ]
 
 [[package]]
+name = "esp32"
+version = "0.3.0"
+dependencies = [
+ "emu-core",
+ "esp-periph",
+ "esp-soc",
+ "xtensa-lx7",
+]
+
+[[package]]
 name = "esp32c3"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
  "esp-periph",
@@ -33,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "esp32c6"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
  "esp-periph",
@@ -43,7 +53,7 @@ dependencies = [
 
 [[package]]
 name = "esp32s3"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
  "esp-periph",
@@ -53,11 +63,12 @@ dependencies = [
 
 [[package]]
 name = "esp32sim"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
  "esp-periph",
  "esp-soc",
+ "esp32",
  "esp32c3",
  "esp32c6",
  "esp32s3",
@@ -65,10 +76,11 @@ dependencies = [
 
 [[package]]
 name = "esp32sim-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "esp-periph",
  "esp-soc",
+ "esp32",
  "esp32c3",
  "esp32c6",
  "esp32s3",
@@ -78,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "esp32sim-wasm-jit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
  "esp-soc",
@@ -88,14 +100,14 @@ dependencies = [
 
 [[package]]
 name = "riscv-rv32"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
 ]
 
 [[package]]
 name = "xtensa-lx7"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "emu-core",
 ]

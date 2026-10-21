@@ -20,24 +20,27 @@
     : !checkout ? ' — missing from this site'
     : /_rom\.elf$|^linux-esp32s3-native-full\.bin$/.test(u) ? ' — not in this checkout: run tools/fetch-demo-assets.sh'
     : /^local\/model_q4\.bin$/.test(u) ? ' — not in this checkout: run tools/fetch-pocket-tank.sh'
+    : /^ESP32_GENERIC-.*\.bin$/.test(u) ? ' — not in this checkout: run tools/fetch-micropython.sh'
     : '');
   const KINDS = { rom: 0, bootloader: 1, ptable: 2, app: 3, elf: 4, flash: 5, script: 6, picture: 7 };
   const pending = new Map();
   worker.onmessage = (ev) => {
     const m = ev.data;
     if (m.touchTrace) { window.recordTouchTrace?.(m.touchTrace); return; }
-    if (m.frameTrace) window.recordTouchTrace?.(m.frameTrace);
     if (m.text !== undefined) { onmessage && onmessage(m.text); return; }
     if (m.bin !== undefined) {
-      onmessage && onmessage(m.bin);
-      if (m.frameTrace) window.recordTouchTrace?.({ stage: 'canvas-drawn', atMs: performance.timeOrigin + performance.now(), cycles: m.frameTrace.cycles });
+      try {
+        if (m.frameTrace) window.recordTouchTrace?.(m.frameTrace);
+        onmessage && onmessage(m.bin);
+        if (m.frameTrace) window.recordTouchTrace?.({ stage: 'canvas-drawn', atMs: performance.timeOrigin + performance.now(), cycles: m.frameTrace.cycles });
+      } finally { if (m.ack) worker.postMessage({ op: 'frame-ack' }); }
       return;
     }
     if (m.log !== undefined) { console.log(m.log); onmessage && onmessage(JSON.stringify({ t: 'emu', msg: m.log })); return; }
     if (m.ready) { ready = true; setStatus(failure || 'wasm loaded — choose firmware'); flush(); }
     if (m.created !== undefined) { const r = pending.get('created'); pending.delete('created'); r && r(m.created); }
     if (m.loaded !== undefined) { const r = pending.get('load' + m.loaded); pending.delete('load' + m.loaded); r && r(m.ok); }
-    if (m.started !== undefined) { started = m.started; setStatus(started ? 'running in WebAssembly' : 'boot failed (see console)'); }
+    if (m.started !== undefined) { started = m.started; setStatus(started ? 'running in WebAssembly' : 'boot failed: ' + (m.error || 'see console')); }
     if (m.stopped !== undefined) { started = false; setStatus('stopped: code ' + m.stopped); }
     if (m.netText) { onmessage && onmessage(JSON.stringify({ t: 'serial', src: 'node' + m.netText.node, data: m.netText.data })); }
     if (m.netStat) { onmessage && onmessage(JSON.stringify({ t: 'net', ...m.netStat })); }
@@ -51,7 +54,7 @@
     connect(handler, status) {
       onmessage = handler; setStatus = status; if (failure) setStatus(failure);
       fetch('wasm/esp32sim.wasm').then((r) => { if (!r.ok) throw new Error('wasm/esp32sim.wasm: ' + r.status + (r.status === 404 ? ' — build it: tools/wasm-build.sh' : '')); return r.arrayBuffer(); })
-        .then((buf) => worker.postMessage({ op: 'init', wasm: buf, touchTrace: q.has('touchTrace') }, [buf]))
+        .then((buf) => worker.postMessage({ op: 'init', wasm: buf, frameAck: true, touchTrace: q.has('touchTrace') }, [buf]))
         .catch((e) => setStatus('cannot load wasm: ' + e.message));
       return { send: (d, timing) => { if (!started) return; if (typeof d === 'string') post({ op: 'text', data: d, touchTrace: timing }); else { const b = d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d; post({ op: 'bin', data: b }, [b]); } } };
     },
@@ -72,7 +75,7 @@
     <div class="row"><b>WebAssembly build</b><span class="note">everything runs in this tab — nothing is uploaded; firmware is read from your disk</span><span id="pace" class="note"></span></div>
     <div class="row" id="fw_demos" style="display:none"><span>Demos:</span></div>
     <div class="row">
-      <label>board <select id="fw_board"><option>m5cores3</option><option>waveshare-lcd4b</option><option>waveshare-amoled18-v2</option><option>atech14</option><option>waveshare-cam</option><option>none</option><option>esp32c3</option><option>esp32c6</option><option>waveshare-c6-lcd147</option></select></label>
+      <label>board <select id="fw_board"><option>m5cores3</option><option>waveshare-lcd4b</option><option>waveshare-amoled18-v2</option><option>atech14</option><option>waveshare-cam</option><option>none</option><option>esp32</option><option>ttgo-tdisplay</option><option>esp32c3</option><option>esp32c6</option><option>waveshare-c6-lcd147</option></select></label>
       <label>flash MB <input id="fw_flash" type="number" value="16" min="1" max="32" style="width:52px"></label>
       <label>PSRAM MB <input id="fw_psram" type="number" value="8" min="0" max="32" style="width:52px"></label>
       <label>WiFi <input id="fw_wifi" placeholder="ssid=…,psk=… (optional)" style="width:190px"></label>
@@ -92,23 +95,32 @@
   const $ = (id) => document.getElementById(id);
   const readFile = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsArrayBuffer(f); });
 
+  // Preserve the value text so the Rust parser owns all return-value rules.
+  function stubSpec(spec, symbols = {}) {
+    const split = spec.indexOf('='), name = split < 0 ? spec : spec.slice(0, split);
+    return (symbols[name] || name) + (split < 0 ? '' : spec.slice(split));
+  }
   async function boot(cfg, files) {
     if (started) { location.reload(); return; }
     setStatus('loading firmware…');
-    const ok = await ask('created', { op: 'create', board: cfg.board, flash_mb: cfg.flash_mb, psram_mb: cfg.psram_mb, jit: q.get('jit') !== '0' });
-    if (!ok) { setStatus('unknown board'); return; }
+    let experiments;
+    try { const { experimentsFromParams } = await import('./wasm/experiments.mjs'); experiments = experimentsFromParams(q, cfg.board); }
+    catch (err) { setStatus(err.message); return; }
+    const ok = await ask('created', { op: 'create', board: cfg.board, smoothDisplay: cfg.smoothDisplay === true, flash_mb: cfg.flash_mb, psram_mb: cfg.psram_mb, jit: q.get('jit') !== '0', experiments });
+    if (!ok) { setStatus('could not create emulator: check board and memory sizes (maximum 32 MiB)'); return; }
     for (const [kind, data, at] of files) {
       const key = at !== undefined ? 'loadat' + at : 'load' + KINDS[kind];
       const good = await ask(key, at !== undefined ? { op: 'load', at, data } : { op: 'load', kind: KINDS[kind], data }, [data]);
       if (!good) { setStatus('failed to load ' + (at !== undefined ? 'flash@0x' + at.toString(16) : kind) + ' (see console)'); return; }
     }
-    for (const st of cfg.stubs || []) { const [name, v] = st.split('='); post({ op: 'stub', name: (cfg.symbols || {})[name] || name, value: v ? parseInt(v, 0) : 0 }); }
+    for (const st of cfg.stubs || []) post({ op: 'stub', spec: stubSpec(st, cfg.symbols) });
     if (cfg.wifi) post({ op: 'wifi', spec: cfg.wifi });
     post({ op: 'start', appDirect: !!cfg.appDirect });
   }
   // A network manifest boots several motes on one medium (esp32sim_net_*): the same files go to
   // every node, each with its own MAC, position and power-on offset.
   async function bootNet(cfg, files, nodeFiles) {
+    if (q.has('timing') || q.has('quantum')) { setStatus('timing and quantum are unsupported for network mode'); return; }
     setStatus('creating the network…');
     const r = await ask('created', { op: 'net-create', nodes: cfg.nodes, board: cfg.board, flash_mb: cfg.flash_mb, slice_ns: cfg.slice_ns || 0 });
     if (!r) { setStatus('could not create the network'); return; }
@@ -121,7 +133,7 @@
         const good = await ask('load' + 'n' + i + ':' + KINDS[kind], { op: 'net-load', node: i, kind: KINDS[kind], data: copy }, [copy]);
         if (!good) { setStatus(`node ${i}: failed to load ${kind}`); return; }
       }
-      for (const st of [].concat(cfg.nodes[i].stubs || cfg.stubs || [])) { const [name, v] = st.split('='); post({ op: 'net-stub', node: i, name: ((cfg.nodes[i].symbols || cfg.symbols) || {})[name] || name, value: v ? parseInt(v, 0) : 0 }); }
+      for (const st of [].concat(cfg.nodes[i].stubs || cfg.stubs || [])) post({ op: 'net-stub', node: i, spec: stubSpec(st, cfg.nodes[i].symbols || cfg.symbols) });
     }
     post({ op: 'net-start' });
   }

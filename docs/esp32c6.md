@@ -140,11 +140,11 @@ acknowledgements, end to end. `web/wasm/fw/c6-rpl-net.json` is that pair; under 
 
 The C6 is in the WebAssembly build too — pick board `esp32c6` on the page, or open it directly:
 
-    https://joakimeriksson.github.io/esp32sim/run.html?fw=c6-hello
-    https://joakimeriksson.github.io/esp32sim/run.html?fw=c6-energy-scan
-    https://joakimeriksson.github.io/esp32sim/run.html?fw=c6-contiki
-    https://joakimeriksson.github.io/esp32sim/run.html?fw=c6-contiki-net
-    https://joakimeriksson.github.io/esp32sim/run.html?fw=c6-rpl-net
+    https://mikroverk.github.io/esp32sim/run.html?fw=c6-hello
+    https://mikroverk.github.io/esp32sim/run.html?fw=c6-energy-scan
+    https://mikroverk.github.io/esp32sim/run.html?fw=c6-contiki
+    https://mikroverk.github.io/esp32sim/run.html?fw=c6-contiki-net
+    https://mikroverk.github.io/esp32sim/run.html?fw=c6-rpl-net
 
 The first is console-only; the second is the energy scanner on the Waveshare board at real time,
 with the panel, the WS2812 and a BOOT button on the page (its firmware is published under
@@ -158,6 +158,7 @@ so no ELF ships). See [wasm.md](wasm.md).
 | CPU | RV32IMAC, machine mode: the C3 core plus the A extension (`lr.w`/`sc.w`, the nine AMOs), `misa` says IMAC |
 | Interrupts | the interrupt matrix (77 sources → 31 lines) with its two front-ends: the PLIC at `0x20001000` that ESP-IDF drives and INTPRI at `0x600C5000` that the ROM uses, one state; the four `FROM_CPU` software interrupts |
 | Memory | 512 KB HP SRAM (one address space for code and data), 320 KB mask ROM, 16 KB LP SRAM, a 16 MB flash window through the 256-entry MMU programmed via SPI0's item index/content registers, page size from `MMU_POWER_CTRL` |
+| WiFi | an unmodified ESP-IDF station scans, joins the virtual access point (open or WPA2-PSK), takes a lease and talks to the virtual network or, with `--net nat`, the host's (`--wifi ssid=esp32sim,psk=esp32sim-pass`, as on the S3). The MAC model is `esp32c6/src/wifi.rs` (register map and differences from the S3 in [wifi-c6-plan.md](wifi-c6-plan.md)); the descriptors move in `bus.rs`; the access point, network, pacing and relay are the chips' shared `StationLink` (`esp-soc/src/wifi.rs`). The `wifi_station_c6` golden runs the committed `examples/c6-wifi-station` build in CI; the browser build runs it too (a manifest's `wifi`, without NAT) |
 | Peripherals | UART0/1, USB-Serial/JTAG, systimer, TIMG0/1, GPIO, efuse, SPI0/1 flash controller, SHA/AES/RSA, L1 cache controller, PCR, the LP blocks (LP_CLKRST reset cause, LP_AON store registers and software reset, LP_TIMER, LP_WDT registers), the analog I2C master (regi2c, with the RF block's status the PHY polls), ASSIST_DEBUG's saved PC, hardware RNG; for the board: RMT (the S3 transmitter on the C6's register map), GDMA (three channels, the S3 model behind the C6's layout), GP-SPI2 with its DMA data phase; the 802.15.4 MAC: energy detect, TX and RX of whole frames with the timing of the air, its two timers (below) |
 
 Peripheral models are **shared with the C3 and S3 through `esp-periph`** where the IP is the same:
@@ -179,6 +180,8 @@ $OD -d ~/.espressif/tools/esp-rom-elfs/*/esp32c6_rev0_rom.elf > /tmp/rom.dis
 $OD -d examples/hello_world-c6/build/hello_world.elf > /tmp/app.dis
 RISCV_DIS_FILES=/tmp/rom.dis:/tmp/app.dis cargo test -p riscv-rv32 --release -- --ignored external_
 ```
+
+LEDC models low-speed timers, static duty latching and GPIO-matrix frequency/duty observation through `--pwm PIN`. Hardware fades and sampled PWM edges are not modelled.
 
 ## The 802.15.4 MAC (`esp32c6/src/radio.rs`)
 
@@ -306,6 +309,13 @@ The firmware that lives on this board — the owner's IEEE 802.15.4 energy scann
 ENERGY_SCAN_DIR=~/work/esp32/energy_scan examples/waveshare-c6-lcd147/run.sh --max-seconds 8 --tft-png lcd.png
 ```
 
+- Colours are the real module's, checked against the board: Waveshare's driver sets RAMCTRL
+  (`0xB0: 0x00, 0xE8`) so pixels arrive low byte first, which is how LVGL without
+  `LV_COLOR_16_SWAP` writes them, and the glass exchanges red and blue unless MADCTL's BGR bit
+  is set. Firmware that looks right here looks right there: BGR set, RGB565 as it is in memory.
+  (Until 2026-09-21 the model read high byte first and had the BGR rule the other way round, so
+  firmware tuned to it showed green as blue on the board, and the scanner's red bars were
+  yellow-green here.)
 - The ST7789 goes through `esp_lcd`'s SPI panel IO: every transfer is a GDMA out-channel
   descriptor chain (the driver enables DMA for the bus), so the C6's GDMA layout and the SPI's
   DMA data phase both had to exist before the first pixel arrived. LVGL flushes ~500 frames a
@@ -333,15 +343,17 @@ machine wants to see, as the Xtensa block interpreter always did.
 
 ## Not there yet
 
-- **TF card, backlight PWM.** The SD slot on SPI2 has nothing behind it; the LEDC backlight is
-  register RAM (the panel is shown regardless).
+- **TF card, backlight rendering.** The SD slot on SPI2 has nothing behind it. LEDC frequency and duty
+  are modelled, but the panel is shown regardless of backlight duty.
 - **The PHY's baseband calibration** (above): a stub, not a model.
 - **`--boot app`** maps the image through the unified MMU and jumps to it, but the system
   registers the bootloader would have set up are not preset; ROM boot is the tested path.
 - **Watchdogs.** The LP_WDT and the TIMG watchdogs are register RAM: they never fire.
-- **WiFi 6, BLE, the LP core** — nothing of those radios or the second core is modelled. The
+- **WiFi** beyond one station: legacy rates only, no power save, no TSF; the PHY calibration is
+  the `bb_init` stub as for 802.15.4.
+- **BLE, the LP core** — nothing of that radio or the second core is modelled. The
   802.15.4 MAC sends, receives, acknowledges and filters (above); enhanced ACKs and security are not there.
-- **Peripherals on demand**: GDMA, I2C, SPI2, LEDC, RMT, ADC, TWAI, PARL_IO. Each shows up as an
+- **Peripherals on demand**: GDMA, I2C, SPI2, RMT, ADC, TWAI, PARL_IO. Each shows up as an
   unknown register with `--log-periph` the moment a firmware wants it. The registers hello_world
   still touches without a model are PMU, IO_MUX, HP_SYSTEM, APB_SARADC and a few LP blocks —
   all of them configuration the firmware only writes and reads back.

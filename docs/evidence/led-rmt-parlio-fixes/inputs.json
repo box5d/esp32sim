@@ -1,0 +1,58 @@
+[
+  {
+    "path": "cli/tests/led_outputs.rs",
+    "sha256": "8c201387477d98c217d1b1cf4a3d8cf8efbfcfdbf5991ce3dcd2117de434758e"
+  },
+  {
+    "path": "esp32s3/src/bus/tests.rs",
+    "sha256": "3232f8991837f715f9e79b87eee2a7fc24317c0f30b824e3c24e2c93f3c203ab"
+  },
+  {
+    "path": "esp32c6/src/parlio.rs",
+    "sha256": "516dcf074610ac87e48d9fc362dba97c2fe0df00e6f6d38c0d30c1a1fe08ec60"
+  },
+  {
+    "path": "web/wasm/fw/esp32c6_rev0_rom.elf",
+    "sha256": "788e1d38724aeb8fd974fa10c4a7b089c02627d35342ce84b9e0b12b239f3551"
+  },
+  {
+    "path": "web/wasm/fw/esp32s3_rev0_rom.elf",
+    "sha256": "c0ce0f338d1de1bdc6efbef1591779a2a42c1ab7d759d3c6ae8ae63a7dd34cfd"
+  },
+  {
+    "path": "web/wasm/fw/esp32c3_rev3_rom.elf",
+    "sha256": "19ac22e08707df926fb0cf4c54795d4067b983fae8635f396ded173a6d78fc3c"
+  },
+  {
+    "path": "esp32c6/src/bus.rs",
+    "sha256": "372f1e8161c4687f8657b7379bb587033e96a08e7b8a807c6867780b6ea622a4"
+  },
+  {
+    "path": "esp-soc/src/devices/ws2812.rs",
+    "sha256": "78e6b0516bf4a2816f32b13b9ace5df36926bdc3e836f1220dd99dced9385cae"
+  },
+  {
+    "path": "esp-periph/src/rmt.rs",
+    "sha256": "e308c463657e46c1c7863d0b43ea32534a8bdc89dafe1c6d51a9dd66c74ef045"
+  },
+  {
+    "path": "esp32c6/src/periph.rs",
+    "sha256": "f8da65060a64b2d006c3fb6443cbdecbe37af9c3ba5a20bca99ad8f2731bff46"
+  },
+  {
+    "path": "esp32s3/src/bus.rs",
+    "sha256": "db56924f04a0e02e3864c01d0f4b5e84313997e51d6d7288941d1cb0e149fd2b"
+  },
+  {
+    "path": "esp32s3/src/bus/dma.rs",
+    "sha256": "eb057664aeae9831c5ab1d99b50e125a62a5d771e999aaa93fc1c7bc03cf1f7e"
+  },
+  {
+    "path": "esp32c3/src/bus.rs",
+    "sha256": "e892b24f0adeeb1eba1e38692cbf92adab65c259469600e33bae439b6238ef00"
+  },
+  {
+    "path": "esp32c6/tests/layout.rs",
+    "sha256": "7bdec7c5187d496fa180893b5c92c255f70ef065160ad72f2ab4e7cc93f6039e"
+  }
+]

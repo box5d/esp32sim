@@ -1,0 +1,26 @@
+--- a/esp-periph/src/i2c.rs
++++ b/esp-periph/src/i2c.rs
+@@ -173,6 +173,7 @@
+             _ => 0,
+         };
+         self.remaining = Some(self.clock_ticks(cycles.into()));
++        if self.log { eprintln!("[i2c-deadline] op={} ticks={:?}", self.op(), self.remaining); }
+     }
+ 
+     fn run(&mut self) {
+@@ -181,6 +182,7 @@
+         self.transactions += 1;
+         self.command_index = 0;
+         self.byte_index = 0;
++        if self.log { eprintln!("[i2c-cfg] regs={:?} cmd={:x?}", [0, 0x38, 0x40, 0x44, 0x48, 0x4c, 0x54].map(|off| self.regs.read(off)), self.program.cmd); }
+         self.schedule();
+     }
+ 
+@@ -222,6 +224,7 @@
+                     }
+                     ack
+                 };
++                if self.log { eprintln!("[i2c-ack] {}", ack); }
+                 if !ack && c & (1 << 8) != 0 {
+                     self.nack = true; self.int_raw |= INT_NACK; self.program.cmd[i] |= 1 << 31;
+                     self.cur.clear(); self.remaining = None;

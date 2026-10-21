@@ -1,0 +1,30 @@
+{
+  "rustc": "1.99.0 (b940084d7 2026-09-28)",
+  "target": "aarch64-apple-darwin",
+  "release_profile": {
+    "opt-level": 3,
+    "debug": 1,
+    "lto": "fat",
+    "codegen-units": 1
+  },
+  "rustflags_and_profile_environment_overrides": {},
+  "binary_sha256": {
+    "main": {
+      "esp32sim": "faf64803d4423c4cac869c461d26c81f550a6ab4224f20f6db572a27d70d4057",
+      "esp32sim-c3": "17f7ecf21d9591ac80e8359a32cfbd577d09701c0b3672bbb56faf5320a0b542",
+      "esp32sim-c6": "48a95a9a5fbcb09d9dab5827400fe08d461768621aeb04b344a4be882ce7222f"
+    },
+    "parent": {
+      "esp32sim": "6d3cfcc92e3bc83fa727cf76ef5d79d09e62efca357899a5d7ccff62504b2b48",
+      "esp32sim-c3": "af52f4b2c824d774b41d089d1eb5706a68cab3c11efd579d017d6e53371935a9",
+      "esp32sim-c6": "2b47427af0e171359acbdfe505369ebf7dd9246f1402da8127b58032e010e7cd"
+    },
+    "head": {
+      "esp32sim": "2c751102a1d9be49c3c7b0030a61ca2c6df8de12d9908e95376b03de38d8033f",
+      "esp32sim-c3": "cf91ee6d339bd48cb6e06ac0b499aa72588ff46b56beb6d64d804bbb285e7de9",
+      "esp32sim-c6": "42fa1f45d8ac67d1b7abf2061c9014248548ad327617f07a21073228854e93b2"
+    }
+  },
+  "retention": "Binaries and build directories removed after verification; normalized diffs, inventories, commands and layout records retained.",
+  "final_source_codegen_check": "Final code commit binaries have zero common-function differences against the initial head disassemblies in all three CLI binaries."
+}

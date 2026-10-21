@@ -3,24 +3,31 @@
 //! write itself.
 use crate::bus::Bus;
 use crate::exec::Trap;
-use crate::state::{Cpu, EXCM_LEVEL, INT_ABOVE, INTTYPE_LEVEL, TIMER_INTERRUPT};
+use crate::state::{Cpu, EXCM_LEVEL, INT_ABOVE, INTTYPE_EDGE, INTTYPE_LEVEL, INTTYPE_NMI, TIMER_INTERRUPT};
 use emu_core::StepOutcome;
 
 const AR: [&str; 16] = ["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11", "a12", "a13", "a14", "a15"];
 
 impl emu_core::Core for Cpu {
-    /// The 32 interrupt lines after the interrupt matrix; only the level-triggered ones are the
-    /// SoC's to set, the timer/software/edge bits belong to the core.
+    /// The 32 interrupt lines after the interrupt matrix. External level inputs follow the
+    /// line state; external edge and NMI inputs latch rising edges inside the core.
     type Irq = u32;
     fn reset(&mut self) { Cpu::reset(self) }
     fn pc(&self) -> u32 { self.pc }
     fn set_pc(&mut self, pc: u32) { self.pc = pc; }
     fn waiting(&self) -> bool { self.waiting }
     fn insn_count(&self) -> u64 { self.insn_count }
-    fn set_irq(&mut self, lines: u32) { self.interrupt = (self.interrupt & !INTTYPE_LEVEL) | (lines & INTTYPE_LEVEL); }
+    fn set_irq(&mut self, lines: u32) {
+        let rising = lines & !self.ext_irq_lines & (INTTYPE_EDGE | INTTYPE_NMI);
+        self.interrupt = (self.interrupt & !INTTYPE_LEVEL) | (lines & INTTYPE_LEVEL) | rising;
+        self.ext_irq_lines = lines;
+    }
     fn irq_pending(&self) -> bool { self.check_interrupts_pending() != 0 }
     fn irq_bits(irq: &u32) -> u32 { *irq }
     fn advance_cycles(&mut self, cycles: u32) { self.advance_ccount(cycles) }
+    fn set_approximate_cpi(&mut self, cycles: u32) { self.approximate_cpi = cycles.max(1); }
+    fn step_charges_cpi(&self) -> bool { true }
+    fn take_timing_extra(&mut self) -> u32 { std::mem::take(&mut self.timing_extra) }
     fn cycles_until_wake(&self) -> Option<u64> {
         if !self.waiting { return None; }
         let mask_level = if self.excm() { self.intlevel().max(EXCM_LEVEL) } else { self.intlevel() };
@@ -33,6 +40,8 @@ impl emu_core::Core for Cpu {
     }
     fn step<B: Bus>(&mut self, bus: &mut B) -> StepOutcome { crate::exec::step_outcome(self, bus) }
     fn run<B: Bus>(&mut self, bus: &mut B, budget: u32) -> (u32, Option<Trap>) { crate::block::run_block(self, bus, budget) }
+    #[cfg(target_arch = "wasm32")]
+    fn run_prepared<B: Bus>(&mut self, bus: &mut B, budget: u32) -> Option<(u32, Option<Trap>)> { crate::block::run_memo(self, bus, budget) }
     fn set_boundaries(&mut self, bloom: u64) { if self.boundary_bloom != bloom { self.blocks.flush(); self.boundary_bloom = bloom; } }
     fn set_block_observation(&mut self, enabled: bool) { self.blocks.observed = enabled; }
     fn flush_caches(&mut self) { self.blocks.flush(); }
@@ -101,8 +110,97 @@ impl Cpu {
 #[cfg(test)]
 mod tests {
     use emu_core::{Bus, CacheOperation, ControlEventKind, Core, Fault, FlatRam, StepKind, TlbOperation, Trap};
-    use crate::state::{exc, TIMER_INTERRUPT};
+    use crate::state::{exc, sr, TIMER_INTERRUPT};
+
+    #[test]
+    fn offchip_lines_preserve_core_interrupts_and_track_levels() {
+        use crate::state::{INTTYPE_LEVEL, INTTYPE_PROFILING, INTTYPE_SOFTWARE, INTTYPE_TIMER};
+        let mut cpu = crate::Cpu::new(0);
+        let internal = INTTYPE_SOFTWARE | INTTYPE_TIMER | INTTYPE_PROFILING;
+        // The interrupt matrix cannot manufacture internal timer/software/profiling requests.
+        cpu.set_irq(internal);
+        assert_eq!(cpu.interrupt, 0);
+        cpu.interrupt = internal;
+        cpu.set_irq(INTTYPE_LEVEL);
+        assert_eq!(cpu.interrupt, internal | INTTYPE_LEVEL);
+        cpu.set_irq(0);
+        assert_eq!(cpu.interrupt, internal);
+    }
+
+    #[test]
+    fn offchip_edges_latch_until_cleared_and_require_a_new_rising_edge() {
+        use crate::state::{sr, INTTYPE_EDGE};
+        let mut cpu = crate::Cpu::new(0);
+        cpu.set_irq(INTTYPE_EDGE);
+        cpu.set_irq(0);
+        assert_eq!(cpu.interrupt, INTTYPE_EDGE, "deasserting the input keeps the edge latch");
+        cpu.write_sr(sr::INTCLEAR, INTTYPE_EDGE);
+        assert_eq!(cpu.interrupt, 0);
+        cpu.set_irq(INTTYPE_EDGE);
+        assert_eq!(cpu.interrupt, INTTYPE_EDGE);
+        cpu.write_sr(sr::INTCLEAR, INTTYPE_EDGE);
+        cpu.set_irq(INTTYPE_EDGE);
+        assert_eq!(cpu.interrupt, 0, "a held input does not retrigger a cleared latch");
+        cpu.set_irq(0);
+        cpu.set_irq(INTTYPE_EDGE);
+        assert_eq!(cpu.interrupt, INTTYPE_EDGE);
+    }
+
+    #[test]
+    fn nmi_bypasses_masks_wakes_waiti_and_acknowledges_its_edge() {
+        use crate::state::{ps, sr, vec, INTTYPE_NMI, NMI_INTERRUPT};
+        for intlevel in [0, 3, 7, 15] {
+            let mut cpu = crate::Cpu::new(0);
+            cpu.ps = ps::EXCM | intlevel;
+            cpu.intenable = 0;
+            cpu.waiting = true;
+            let (pc, saved_ps) = (cpu.pc, cpu.ps);
+            cpu.set_irq(INTTYPE_NMI);
+            cpu.write_sr(sr::INTCLEAR, INTTYPE_NMI);
+            assert!(cpu.irq_pending());
+            assert_eq!(cpu.check_interrupts(), Some(Trap::Interrupt(NMI_INTERRUPT)));
+            assert_eq!((cpu.epc[7], cpu.eps[7], cpu.pc), (pc, saved_ps, cpu.vecbase + vec::NMI));
+            assert!(!cpu.waiting);
+            assert!(!cpu.irq_pending());
+            cpu.set_irq(INTTYPE_NMI);
+            assert_eq!(cpu.check_interrupts(), None, "a held NMI fires only once");
+            cpu.set_irq(0);
+            cpu.set_irq(INTTYPE_NMI);
+            assert_eq!(cpu.check_interrupts(), Some(Trap::Interrupt(NMI_INTERRUPT)));
+        }
+    }
+
+    #[test]
+    fn reset_rearms_offchip_edge_detection() {
+        use crate::state::{INTTYPE_EDGE, INTTYPE_NMI};
+        let mut cpu = crate::Cpu::new(0);
+        let edges = INTTYPE_EDGE | INTTYPE_NMI;
+        cpu.set_irq(edges);
+        cpu.reset();
+        assert_eq!(cpu.interrupt, 0);
+        cpu.set_irq(edges);
+        assert_eq!(cpu.interrupt, edges);
+    }
     /// `movi a2, 5; j .` through the trait, on the block path and the step path.
+    #[test]
+    fn approximate_block_cost_charges_ccount_and_cuts_at_timer() {
+        let base = 0x4037_0000;
+        let mut ram = FlatRam::new(base, 64);
+        // Four movi.n instructions; timer deadline lies inside the second priced instruction.
+        ram.mem[..8].copy_from_slice(&[0x0c, 0x12, 0x0c, 0x23, 0x0c, 0x34, 0x0c, 0x45]);
+        let mut cpu = crate::Cpu::new(0);
+        cpu.pc = base;
+        cpu.ps = 0;
+        cpu.write_sr(sr::CCOMPARE0, 5);
+        Core::set_approximate_cpi(&mut cpu, 3);
+        let (used, trap) = cpu.run(&mut ram, 8);
+        assert_eq!(trap, None);
+        assert_eq!(used, 2);
+        assert_eq!(cpu.insn_count, 2);
+        assert_eq!(cpu.ccount, 6);
+        assert_ne!(cpu.interrupt & (1 << TIMER_INTERRUPT[0]), 0);
+    }
+
     #[test]
     fn core_runs_a_block() {
         let mut ram = FlatRam::new(0x4037_0000, 64);
@@ -193,6 +291,7 @@ mod tests {
         }
     }
     impl Bus for PagedRam {
+        fn note_code_page(&mut self, _vidx: u32) {} // All writes already update versions, or this bus has no decode cache.
         fn read8(&mut self, address: u32) -> Result<u8, Fault> { let o = self.off(address, 1)?; Ok(self.mem[o]) }
         fn read16(&mut self, address: u32) -> Result<u16, Fault> { let o = self.off(address, 2)?; Ok(u16::from_le_bytes(self.mem[o..o + 2].try_into().unwrap())) }
         fn read32(&mut self, address: u32) -> Result<u32, Fault> { let o = self.off(address, 4)?; Ok(u32::from_le_bytes(self.mem[o..o + 4].try_into().unwrap())) }
@@ -257,7 +356,7 @@ mod tests {
     fn timing_only_advance_exposes_the_next_ccompare_wake() {
         let mut cpu = crate::Cpu::new(0);
         cpu.waiting = true; cpu.ps = 0; cpu.intenable = 1 << TIMER_INTERRUPT[0];
-        cpu.ccount = 0xffff_fffd; cpu.ccompare[0] = 1;
+        cpu.write_sr(sr::CCOUNT, 0xffff_fffd); cpu.write_sr(sr::CCOMPARE0, 1);
         assert_eq!(cpu.cycles_until_wake(), Some(4));
         cpu.advance_cycles(3);
         assert_eq!(cpu.cycles_until_wake(), Some(1));
@@ -265,7 +364,7 @@ mod tests {
         cpu.advance_cycles(1);
         assert_ne!(cpu.interrupt & (1 << TIMER_INTERRUPT[0]), 0);
         assert_eq!(cpu.insn_count, 0);
-        cpu.interrupt = 0; cpu.ccompare[0] = cpu.ccount;
+        cpu.interrupt = 0; cpu.write_sr(sr::CCOMPARE0, cpu.ccount);
         assert_eq!(cpu.cycles_until_wake(), Some(1u64 << 32));
     }
 }

@@ -1,0 +1,22 @@
+{
+  "checks": "pass",
+  "module_sha256": "2dfa79829c9c143cec24835d7acd6999963004056e4a3ec89bc694fb438192a2",
+  "modeled_seconds": 8,
+  "connections": 2,
+  "reads": 2,
+  "timeout_reason": 8,
+  "normal_disconnect_reason": 19,
+  "packets": {
+    "ADV_IND": {
+      "before": 16,
+      "after": 31,
+      "identical": true
+    },
+    "SCAN_RSP": {
+      "before": 15,
+      "after": 30,
+      "identical": true
+    }
+  },
+  "guest_errors": []
+}

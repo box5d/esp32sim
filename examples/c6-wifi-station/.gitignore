@@ -1,0 +1,14 @@
+build*/
+managed_components/
+sdkconfig
+sdkconfig.old
+sdkconfig.trace
+sdkconfig.trace.old
+dependencies.lock
+sdkconfig.emu
+sdkconfig.emu.old
+# per-target configurations (sdkconfig.esp32c3, ...); they can hold your own network's credentials
+sdkconfig.*
+!sdkconfig.defaults
+!sdkconfig.ci.defaults
+!sdkconfig.trace.defaults

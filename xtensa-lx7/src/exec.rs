@@ -45,27 +45,27 @@ impl Cpu {
     /// Unmasked pending interrupts (non-zero if `check_interrupts` would deliver one).
     #[inline]
     pub fn check_interrupts_pending(&self) -> u32 {
-        let pending = self.interrupt & self.intenable;
+        // NMI ignores both INTENABLE and PS.INTLEVEL (Xtensa ISA, section 4.4.6).
+        let pending = self.interrupt & (self.intenable | INTTYPE_NMI);
         if pending == 0 { return 0; }
         let mask_level = if self.excm() { self.intlevel().max(EXCM_LEVEL) } else { self.intlevel() };
-        pending & INT_ABOVE[mask_level as usize]
+        pending & (INT_ABOVE[mask_level as usize] | INTTYPE_NMI)
     }
 
-    /// Deliver the highest-priority enabled pending interrupt, if any is unmasked.
+    /// Deliver the highest-priority unmasked interrupt and acknowledge the NMI edge, if taken.
     pub fn check_interrupts(&mut self) -> Option<Trap> {
-        let pending = self.interrupt & self.intenable;
+        let pending = self.check_interrupts_pending();
         if pending == 0 { return None; }
-        let mask_level = if self.excm() { self.intlevel().max(EXCM_LEVEL) } else { self.intlevel() };
-        if pending & INT_ABOVE[mask_level as usize] == 0 { return None; }
         let mut best: Option<(u32, u32)> = None;   // (level, irq)
         let mut p = pending;
         while p != 0 {
             let irq = p.trailing_zeros();
             p &= p - 1;
             let level = INT_LEVEL[irq as usize] as u32;
-            if level > mask_level && best.is_none_or(|(l, _)| level > l) { best = Some((level, irq)); }
+            if best.is_none_or(|(l, _)| level > l) { best = Some((level, irq)); }
         }
         let (level, irq) = best?;
+        if irq == NMI_INTERRUPT { self.interrupt &= !INTTYPE_NMI; }
         self.waiting = false;
         if level == 1 {
             self.exccause = exc::LEVEL1_INTERRUPT;
@@ -107,10 +107,23 @@ impl Cpu {
     pub fn advance_ccount(&mut self, cycles: u32) {
         let before = self.ccount;
         self.ccount = self.ccount.wrapping_add(cycles);
+        // event-s1: no comparator matches unless the nearest one does
+        #[cfg(target_arch = "wasm32")]
+        if self.event_at.wrapping_sub(before) >= cycles { return; }
         for (&c, &irq) in self.ccompare.iter().zip(&TIMER_INTERRUPT) {
             // matched if c in (before, ccount]
             if c.wrapping_sub(before).wrapping_sub(1) < cycles { self.interrupt |= 1 << irq; }
         }
+        #[cfg(target_arch = "wasm32")]
+        self.refresh_event();
+    }
+
+    /// event-s1: recompute `event_at` from `ccount` and `ccompare`. The order of the comparators'
+    /// distances only changes when one of them matches (in `advance_ccount`) or on a direct write.
+    #[cfg(target_arch = "wasm32")]
+    pub fn refresh_event(&mut self) {
+        let now = self.ccount;
+        self.event_at = now.wrapping_add(self.ccompare.iter().map(|c| c.wrapping_sub(now).wrapping_sub(1)).min().unwrap_or(u32::MAX));
     }
 
     pub fn read_sr(&mut self, n: u32) -> Option<u32> {
@@ -152,6 +165,8 @@ impl Cpu {
             sr::CONFIGID0 | sr::CONFIGID1 => {}
             _ => return None,
         }
+        #[cfg(target_arch = "wasm32")]
+        if n == sr::CCOUNT || (240..=242).contains(&n) { self.refresh_event(); }
         Some(())
     }
 
@@ -159,7 +174,7 @@ impl Cpu {
         Some(match n {
             0 | 1 => self.accx[n as usize], 2..=6 => self.qacc_h[(n - 2) as usize], 7..=11 => self.qacc_l[(n - 7) as usize], 12 => self.gpio_out,
             13 => self.sar_byte, 14 => self.fft_bit_width, 15..=18 => self.ua_state[(n - 15) as usize],
-            231 => self.threadptr, 232 => self.fcr, 233 => self.fsr,
+            231 => self.threadptr, 232 => self.fcr, 233 => self.fsr, 234..=236 if self.lx6 => self.f64[(n - 234) as usize],
             _ => return None,
         })
     }
@@ -168,9 +183,24 @@ impl Cpu {
             0 | 1 => self.accx[n as usize] = v, 2..=6 => self.qacc_h[(n - 2) as usize] = v, 7..=11 => self.qacc_l[(n - 7) as usize] = v, 12 => self.gpio_out = v,
             13 => self.sar_byte = v, 14 => self.fft_bit_width = v, 15..=18 => self.ua_state[(n - 15) as usize] = v,
             231 => self.threadptr = v, 232 => self.fcr = v & 0x7f, 233 => self.fsr = v & 0xfff80,
+            234..=236 if self.lx6 => self.f64[(n - 234) as usize] = v,
             _ => return None,
         }
         Some(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Cpu;
+
+    #[test]
+    fn lx6_dfp_context_registers_round_trip() {
+        let mut cpu = Cpu { lx6: true, ..Cpu::default() };
+        for (register, value) in (234..=236).zip([0x1234, 0x5678, 0x9abc]) {
+            assert_eq!(cpu.write_ur(register, value), Some(()));
+            assert_eq!(cpu.read_ur(register), Some(value));
+        }
     }
 }
 
@@ -195,12 +225,18 @@ pub fn step<B: Bus>(cpu: &mut Cpu, bus: &mut B) -> Result<(), Trap> { step_outco
 /// Execute one slow-path event and retain the fetch and control facts that cannot be recovered by
 /// wrapping the bus.
 pub fn step_outcome<B: Bus>(cpu: &mut Cpu, bus: &mut B) -> StepOutcome {
+    let outcome = step_outcome_inner(cpu, bus);
+    if cpu.price_control && matches!(outcome.trap(), Some(Trap::Exception(_) | Trap::Interrupt(_))) { cpu.timing_extra += 6; }
+    outcome
+}
+
+fn step_outcome_inner<B: Bus>(cpu: &mut Cpu, bus: &mut B) -> StepOutcome {
     let pc = cpu.pc;
     if let Some(t) = cpu.check_interrupts() {
         return StepOutcome { pc, next_pc: cpu.pc, bytes: None, length: 0, kind: StepKind::TrapBefore(t), control: None };
     }
     if cpu.waiting {
-        cpu.advance_ccount(1);
+        cpu.advance_ccount(cpu.approximate_cpi);
         return StepOutcome { pc, next_pc: pc, bytes: None, length: 0, kind: StepKind::Idle, control: None };
     }
 
@@ -219,8 +255,11 @@ pub fn step_outcome<B: Bus>(cpu: &mut Cpu, bus: &mut B) -> StepOutcome {
             }
         };
         let vidx = bus.code_page(pc);
-        let ver = bus.page_versions().get(vidx as usize).copied().unwrap_or(0);
         let vidx2 = if pc >> emu_core::bus::VPAGE_SHIFT == pc.wrapping_add(3) >> emu_core::bus::VPAGE_SHIFT { vidx } else { bus.code_page(pc.wrapping_add(3)) };
+        // EX110: watch both pages before reading the versions this entry will compare against.
+        bus.note_code_page(vidx);
+        if vidx2 != vidx { bus.note_code_page(vidx2); }
+        let ver = bus.page_versions().get(vidx as usize).copied().unwrap_or(0);
         let ver2 = bus.page_versions().get(vidx2 as usize).copied().unwrap_or(0);
         let i = decode(pc, bytes); let m = max_ar(&i);
         cpu.icache[idx] = crate::decode::CacheEntry { pc, ver, vidx, ver2, vidx2, bytes, insn: i, max_ar: m };
@@ -231,9 +270,18 @@ pub fn step_outcome<B: Bus>(cpu: &mut Cpu, bus: &mut B) -> StepOutcome {
     }
 
     let control = control_event(cpu, &i);
+    let extra = if cpu.price_control { crate::block::step_extra(cpu, bus, &i) } else { 0 };
+    if cpu.price_control && cpu.icache_fill != 0 {
+        cpu.touch_fetch_lines(pc, pc.wrapping_add(i.len.max(1) as u32 - 1));
+    }
     let r = exec_insn(cpu, bus, &i);
+    if cpu.price_control && r.is_ok() {
+        let taken = control_taken(cpu, &i);
+        cpu.timing_extra += control_price(i.op, taken) + extra
+            + u32::from(taken && transfers(i.op) && straddles(bus, cpu.pc));
+    }
     cpu.insn_count += 1;
-    cpu.advance_ccount(1);
+    cpu.advance_ccount(cpu.approximate_cpi);
     let kind = match r { Ok(()) => StepKind::Retired, Err(trap) => StepKind::TrapDuring(trap) };
     StepOutcome { pc, next_pc: cpu.pc, bytes: Some(bytes), length: i.len, kind, control }
 }
@@ -278,6 +326,181 @@ macro_rules! st {
     };
 }
 
+/// The address of the 32-bit data access `i` is about to make, if it is one (EX133: only
+/// word accesses reach device registers; the bus rejects narrower ones).
+#[inline]
+pub(crate) fn word_access(cpu: &Cpu, i: &Insn) -> Option<u32> {
+    use Op::*;
+    match i.op {
+        L32i | L32iN | L32ai | S32i | S32iN | S32ri | S32nb | L32e | S32e | S32c1i | Lsi | Lsip | Ssi | Ssip
+            => Some(cpu.get_ar(i.s).wrapping_add(i.imm as u32)),
+        Lsx | Lsxp | Ssx | Ssxp => Some(cpu.get_ar(i.s).wrapping_add(cpu.get_ar(i.t))),
+        L32r => Some(i.imm as u32),
+        _ => None,
+    }
+}
+
+/// Stop before a potentially observable access while executing virtual quanta.
+/// PIE and MAC16 load bases are visible ARs. Conservatively scan them rather than
+/// extracting extension operands again; the bus includes their small pre-offsets.
+#[inline]
+pub(crate) fn defer_instruction<B: Bus>(cpu: &Cpu, bus: &mut B, i: &Insn) -> bool {
+    if !bus.defer_armed() { return false; }
+    if let Some(addr) = word_access(cpu, i) { return bus.defer_access(addr); }
+    if i.op == Op::Pie || (i.op == Op::Mac16 && matches!((i.raw >> 20) & 15, 0 | 1 | 4 | 5 | 8 | 9)) {
+        return (0..16).any(|r| bus.defer_access(cpu.get_ar(r)));
+    }
+    false
+}
+
+/// EX138: the register a load leaves its result in, for the measured load-use cycle (EX067: an
+/// instruction that reads the result of the load right before it waits one cycle).
+#[inline]
+pub(crate) fn load_result(i: &Insn) -> Option<u8> {
+    use Op::*;
+    matches!(i.op, L32i | L32iN | L32r | L8ui | L16ui | L16si | L32ai | L32e | S32c1i).then_some(i.t)
+}
+/// True when `i` reads the result of the load `prev`.
+#[inline]
+pub(crate) fn load_use(prev: &Insn, i: &Insn) -> bool {
+    load_result(prev).is_some_and(|r| i.gpr_effects().reads & (1 << r) != 0)
+}
+
+/// EX140: FP registers an instruction reads and the one it writes with a multi-cycle result.
+/// ADD.S, MUL.S and MADD.S results are usable four cycles after issue (EX079, measured);
+/// SUB.S and MSUB.S are assumed to match them. Every other writer counts as ready next cycle.
+fn fp_effects(i: &Insn) -> (u16, Option<u8>) {
+    use Op::*;
+    let (r, s, t) = (1u16 << (i.r & 15), 1u16 << (i.s & 15), 1u16 << (i.t & 15));
+    match i.op {
+        AddS | SubS | MulS => (s | t, Some(i.r)),
+        MaddS | MsubS => (r | s | t, Some(i.r)),
+        MkdadjS => (r | s, None),
+        UnS | OeqS | UeqS | OltS | UltS | OleS | UleS => (s | t, None),
+        RoundS | TruncS | FloorS | CeilS | UtruncS | MovS | AbsS | NegS | Rfr | MksadjS | AddexpmS
+        | MoveqzS | MovnezS | MovltzS | MovgezS | MovfS | MovtS => (s, None),
+        Ssi | Ssip => (t, None),
+        Ssx | Ssxp => (r, None),
+        _ => (0, None),
+    }
+}
+
+/// The FP register an instruction overwrites with a result that is ready on the next cycle.
+fn fp_fast_write(i: &Insn) -> Option<u8> {
+    use Op::*;
+    match i.op {
+        Wfr | ConstS | MovS | AbsS | NegS | FloatS | UfloatS | MkdadjS | MksadjS | AddexpmS | Lsx | Lsxp => Some(i.r),
+        Lsi | Lsip => Some(i.t),
+        _ => None,
+    }
+}
+
+/// EX138/EX140: cycles each instruction of a straight-line run waits beyond its own, known when
+/// the run is decoded: the load-use cycle (EX067) and FP result readiness (EX079). The run
+/// starts with every result ready, so a dependency across a block boundary is not charged.
+pub(crate) fn static_extras<'a>(insns: impl Iterator<Item = &'a Insn>) -> Vec<u8> {
+    let (mut ready, mut qready, mut now, mut prev) = ([0u32; 16], [0u32; 8], 0u32, None::<&Insn>);
+    insns.map(|i| {
+        let mut wait = u32::from(prev.is_some_and(|p| load_use(p, i)));
+        // EX146: a loaded Q register is usable two cycles after its load issues (EX080).
+        let q = if i.op == Op::Pie { crate::pie_timing::insn_effects(i) } else { Default::default() };
+        for (r, &at) in qready.iter().enumerate() { if q.reads & (1 << r) != 0 { wait = wait.max(at.saturating_sub(now)); } }
+        let (reads, slow) = fp_effects(i);
+        for (f, &at) in ready.iter().enumerate() { if reads & (1 << f) != 0 { wait = wait.max(at.saturating_sub(now)); } }
+        now += 1 + wait + control_price(i.op, false);
+        for (r, at) in qready.iter_mut().enumerate() { if q.writes & (1 << r) != 0 { *at = if q.delayed & (1 << r) != 0 { now + 1 } else { 0 }; } }
+        if let Some(f) = slow { ready[f as usize & 15] = now + 3; }
+        else if let Some(f) = fp_fast_write(i) { ready[f as usize & 15] = 0; }
+        prev = Some(i);
+        wait as u8
+    }).collect()
+}
+
+/// EX141: the statically known target of a jump, call or conditional branch.
+pub(crate) fn static_target(i: &Insn) -> Option<u32> {
+    use Op::*;
+    match i.op {
+        J | Call0 | Call4 | Call8 | Call12
+        | Beqz | Bnez | Bltz | Bgez | BeqzN | BnezN | Beqi | Bnei | Blti | Bgei | Bltui | Bgeui
+        | Bnone | Beq | Blt | Bltu | Ball | Bbc | Bbci | Bany | Bne | Bge | Bgeu | Bnall | Bbs | Bbsi | Bf | Bt => Some(i.imm as u32),
+        _ => None,
+    }
+}
+/// Instructions whose taken path redirects the fetch (the alignment cycle applies to them).
+pub(crate) fn transfers(op: Op) -> bool {
+    use Op::*;
+    matches!(op, J | Jx | Call0 | Call4 | Call8 | Call12 | Callx0 | Callx4 | Callx8 | Callx12 | Ret | RetN | Retw | RetwN
+        | Rfe | Rfi | Rfwo | Rfwu | Rfde | Rfue | Rfme
+        | Beqz | Bnez | Bltz | Bgez | BeqzN | BnezN | Beqi | Bnei | Blti | Bgei | Bltui | Bgeui
+        | Bnone | Beq | Blt | Bltu | Ball | Bbc | Bbci | Bany | Bne | Bge | Bgeu | Bnall | Bbs | Bbsi | Bf | Bt)
+}
+/// Whether the instruction itself redirects control, excluding an implicit loop backedge.
+/// Conditional branches do not write their operands, so this is also valid after execution.
+/// Comparing PC with fall-through cannot distinguish a not-taken branch at LEND, or a
+/// taken branch whose target happens to be the next instruction.
+#[inline]
+pub(crate) fn control_taken(cpu: &Cpu, i: &Insn) -> bool {
+    use Op::*;
+    let ar = |r| cpu.get_ar(r);
+    match i.op {
+        Beqz | BeqzN => ar(i.s) == 0,
+        Bnez | BnezN => ar(i.s) != 0,
+        Bltz => (ar(i.s) as i32) < 0,
+        Bgez => (ar(i.s) as i32) >= 0,
+        Beqi => ar(i.s) == i.imm2 as u32,
+        Bnei => ar(i.s) != i.imm2 as u32,
+        Blti => (ar(i.s) as i32) < i.imm2,
+        Bgei => (ar(i.s) as i32) >= i.imm2,
+        Bltui => ar(i.s) < i.imm2 as u32,
+        Bgeui => ar(i.s) >= i.imm2 as u32,
+        Beq => ar(i.s) == ar(i.t), Bne => ar(i.s) != ar(i.t),
+        Blt => (ar(i.s) as i32) < ar(i.t) as i32,
+        Bge => (ar(i.s) as i32) >= ar(i.t) as i32,
+        Bltu => ar(i.s) < ar(i.t), Bgeu => ar(i.s) >= ar(i.t),
+        Bnone => ar(i.s) & ar(i.t) == 0, Bany => ar(i.s) & ar(i.t) != 0,
+        Ball => !ar(i.s) & ar(i.t) == 0, Bnall => !ar(i.s) & ar(i.t) != 0,
+        Bbc => ar(i.s) & (1 << (ar(i.t) & 31)) == 0,
+        Bbs => ar(i.s) & (1 << (ar(i.t) & 31)) != 0,
+        Bbci => ar(i.s) & (1 << i.imm2) == 0,
+        Bbsi => ar(i.s) & (1 << i.imm2) != 0,
+        Bf => cpu.br & (1 << i.s) == 0, Bt => cpu.br & (1 << i.s) != 0,
+        _ => transfers(i.op),
+    }
+}
+
+/// EX141: a redirected fetch costs one more cycle when the first instruction at the target
+/// straddles a 32-bit fetch word, `(pc & 3) + length > 4`. From the captured EX081 control cells:
+/// taken branches over a 9-byte stride average 2.5 extra cycles, not 2, and the zero-overhead
+/// loop ladder pays +1 exactly at a body start of 3 mod 4 with 2-byte instructions.
+pub(crate) fn straddles<B: Bus>(bus: &mut B, target: u32) -> bool {
+    // Only the length matters: with the density option, op0 8..=13 marks a 16-bit instruction.
+    if target & 3 < 2 { return false; }
+    match bus.fetch(target) { Ok(b) => (target & 3) + if (8..=13).contains(&(b[0] & 0xf)) { 2 } else { 3 } > 4, Err(_) => false }
+}
+
+/// EX138: cycles an instruction costs beyond the one every instruction is charged, from the
+/// ESP32-S3 opcode ladders (EX068): taken branch 3, J 3, JX 6, LOOP setup 5, QUO 4, REM 5.
+/// Calls and returns from the EX081 control cells: `call0 + ret` and `call8 + entry + retw` each
+/// cost 4.5 cycles more than the same count of plain instructions, i.e. call 3, return 3, ENTRY 1,
+/// plus the half-cycle average of the alignment cycle below. CALLXn is assumed to cost what JX does.
+#[inline]
+pub(crate) fn control_price(op: Op, taken: bool) -> u32 {
+    use Op::*;
+    match op {
+        J | Call0 | Call4 | Call8 | Call12 | Ret | RetN | Retw | RetwN => 2,
+        Jx | Callx0 | Callx4 | Callx8 | Callx12 => 5,
+        Loop | Loopnez | Loopgtz => 4,
+        Quou | Quos => 3,
+        Remu | Rems => 4,
+        Rfe | Rfi | Rfwo | Rfwu | Rfde | Rfue | Rfme => 2,
+        // Only a conditional branch is priced by its direction: a hardware-loop backedge also
+        // changes the pc, and costs nothing.
+        Beqz | Bnez | Bltz | Bgez | BeqzN | BnezN | Beqi | Bnei | Blti | Bgei | Bltui | Bgeui
+        | Bnone | Beq | Blt | Bltu | Ball | Bbc | Bbci | Bany | Bne | Bge | Bgeu | Bnall | Bbs | Bbsi | Bf | Bt if taken => 2,
+        _ => 0,
+    }
+}
+
 pub(crate) fn exec_insn<B: Bus>(cpu: &mut Cpu, bus: &mut B, i: &Insn) -> Result<(), Trap> {
     use Op::*;
     let pc = cpu.pc;
@@ -307,13 +530,13 @@ pub(crate) fn exec_insn<B: Bus>(cpu: &mut Cpu, bus: &mut B, i: &Insn) -> Result<
         Simcall => { cpu.pc = next; return Err(Trap::Simcall); }
         Waiti => { cpu.ps = (cpu.ps & !ps::INTLEVEL_MASK) | (immu & 0xf); cpu.waiting = true; }
         Rsil => { let old = cpu.ps; cpu.ps = (cpu.ps & !ps::INTLEVEL_MASK) | (immu & 0xf); set!(t, old); }
-        Rfe => { cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; }
-        Rfue => { cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; }
-        Rfde => { new_pc = if cpu.excm() { cpu.depc } else { cpu.epc[1] }; taken = true; }
-        Rfi => { let l = (immu & 0xf) as usize; if !(2..=7).contains(&l) { return Err(cpu.raise(exc::ILLEGAL)); } cpu.ps = cpu.eps[l]; new_pc = cpu.epc[l]; taken = true; }
+        Rfe => { cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; cpu.blocks.alias_pc = new_pc; }
+        Rfue => { cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; cpu.blocks.alias_pc = new_pc; }
+        Rfde => { new_pc = if cpu.excm() { cpu.depc } else { cpu.epc[1] }; taken = true; cpu.blocks.alias_pc = new_pc; }
+        Rfi => { let l = (immu & 0xf) as usize; if !(2..=7).contains(&l) { return Err(cpu.raise(exc::ILLEGAL)); } cpu.ps = cpu.eps[l]; new_pc = cpu.epc[l]; taken = true; cpu.blocks.alias_pc = new_pc; }
         Rfme => return Err(Trap::Unimplemented(pc, i.raw)),
-        Rfwo => { cpu.windowstart &= !bit(cpu.windowbase); cpu.windowbase = (cpu.ps & ps::OWB_MASK) >> ps::OWB_SHIFT; cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; }
-        Rfwu => { cpu.windowstart |= bit(cpu.windowbase); cpu.windowbase = (cpu.ps & ps::OWB_MASK) >> ps::OWB_SHIFT; cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; }
+        Rfwo => { cpu.windowstart &= !bit(cpu.windowbase); cpu.windowbase = (cpu.ps & ps::OWB_MASK) >> ps::OWB_SHIFT; cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; cpu.blocks.alias_pc = new_pc; }
+        Rfwu => { cpu.windowstart |= bit(cpu.windowbase); cpu.windowbase = (cpu.ps & ps::OWB_MASK) >> ps::OWB_SHIFT; cpu.ps &= !ps::EXCM; new_pc = cpu.epc[1]; taken = true; cpu.blocks.alias_pc = new_pc; }
 
         // ------------------------------------------------------------ jumps / calls
         J => { new_pc = immu; taken = true; }
@@ -616,4 +839,24 @@ fn exec_mac16<B: Bus>(cpu: &mut Cpu, bus: &mut B, i: &Insn) -> Result<(), Trap> 
     }
     cpu.pc = cpu.pc.wrapping_add(3);
     Ok(())
+}
+
+#[cfg(test)]
+mod lx6_config_tests {
+    use super::*;
+    #[test]
+    fn dfp_user_register_instructions_are_illegal_on_s3() {
+        for lx6 in [false, true] {
+            for register in 234..=236 {
+                for op in [Op::Rur, Op::Wur] {
+                    let mut cpu = Cpu { lx6, ..Cpu::default() };
+                    let mut bus = crate::bus::FlatRam::new(0, 4096);
+                    let insn = Insn { op, r: 2, s: 0, t: 3, imm: register, imm2: 0, len: 3, raw: 0 };
+                    let result = exec_insn(&mut cpu, &mut bus, &insn);
+                    if lx6 { assert!(result.is_ok()); }
+                    else { assert_eq!(result, Err(Trap::Exception(exc::ILLEGAL))); }
+                }
+            }
+        }
+    }
 }

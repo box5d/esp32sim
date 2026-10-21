@@ -1,0 +1,235 @@
+[
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "SRC_TG0_T0_EDGE: usize = 58 -> SRC_TG0_T0_EDGE: usize = 57",
+    "test": "timer_edges_use_idf_sources_58_and_62_on_both_cores",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "SRC_TG1_T0_EDGE: usize = 62 -> SRC_TG1_T0_EDGE: usize = 61",
+    "test": "timer_edges_use_idf_sources_58_and_62_on_both_cores",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/bus.rs",
+    "mutation": "self.written(a, bytes.len()); -> self.written(a, 0);",
+    "test": "stores_invalidate_only_the_written_code_pages_and_rtc_alias",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/bus.rs",
+    "mutation": "RTC_FAST_I + addr - RTC_FAST_D -> addr",
+    "test": "stores_invalidate_only_the_written_code_pages_and_rtc_alias",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/bus.rs",
+    "mutation": "self.flash_written(offset, data.len()); -> self.flash_written(offset, 0);",
+    "test": "flash_remapping_and_programming_invalidate_aliases_without_touching_rom",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/bus.rs",
+    "mutation": "if cpu == 0 { if let Some(addr) -> if cpu == 1 { if let Some(addr)",
+    "test": "flash_remapping_and_programming_invalidate_aliases_without_touching_rom",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "0x90 => self.run_sha256(true), -> 0x90 => self.run_sha256(false),",
+    "test": "classic_sha256_layout_hashes_one_block",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "ram.write(0x2c, 1); -> ram.write(0x2c, 0);",
+    "test": "app_cpu_follows_dport_control_bits",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "line < 32 -> line < 7",
+    "test": "dport_routes_cross_core_interrupts",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "self.sync_pull(pin); -> self.sync_pull(39);",
+    "test": "classic_gpio_matrix_routes_simple_io_constants_and_inversion",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/timers.rs",
+    "mutation": "self.lact.step(ticks, u64::MAX, -> self.lact.step(0, u64::MAX,",
+    "test": "classic_lact_counts_and_raises_its_interrupt",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "((self.0.rx_pending() % 128) as u32) << 13 -> 0",
+    "test": "classic_uart_reports_receive_fifo_pointers",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "self.0.rx_pending() % 128 -> self.0.rx_pending() % 256",
+    "test": "classic_uart_reports_receive_fifo_pointers",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/timers.rs",
+    "mutation": "timer.step(ticks, u64::MAX, -> timer.step(ticks, (1 << 54) - 1,",
+    "test": "all_classic_timers_keep_full_width_and_share_alarm_semantics",
+    "killed": true
+  },
+  {
+    "file": "esp-periph/src/timg.rs",
+    "mutation": "steps.saturating_mul(div) -> steps.wrapping_mul(div)",
+    "test": "far_alarms_saturate_instead_of_wrapping",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/timers.rs",
+    "mutation": ".chain([&self.lact]) -> .chain([&self.timer.t[0]])",
+    "test": "far_alarms_saturate_instead_of_wrapping",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "        Err(\"boot from ROM on the classic ESP32\".into())\n    } ->         Ok(0)\n    }",
+    "test": "direct_app_boot_requires_rom",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "self.periph.spi0.0.jedec = old.spi0.0.jedec; -> self.periph.spi0.0.jedec = [0x20, 0x40, 0x17];",
+    "target": "review_core",
+    "test": "reset_keeps_both_flash_jedec_ids",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "self.periph.spi1.0.jedec = old.spi1.0.jedec; -> self.periph.spi1.0.jedec = [0x20, 0x40, 0x17];",
+    "target": "review_core",
+    "test": "reset_keeps_both_flash_jedec_ids",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "self.periph.rtc.0.ram.write(0x8c, 0); -> self.periph.rtc.0.ram.write(0x98, 0);",
+    "target": "review_core",
+    "test": "reset_disables_classic_rwdt_without_clobbering_stage3",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "pin == 20 || pin == 24 -> pin == 20 || pin == 23 || pin == 24",
+    "target": "review_core",
+    "test": "gpio23_is_visible_but_unbonded_or_invalid_pins_are_hidden",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "0x38 => 0x34, // keep WAKEUP_STATE -> 0x38 => 0x38, // keep WAKEUP_STATE",
+    "target": "review_core",
+    "test": "wakeup_state_cannot_alias_reset_cause",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "self.0.ram.write(0x34, v & (0xfff << 11)); -> self.0.ram.write(0x38, v & (0xfff << 11));",
+    "target": "review_core",
+    "test": "wakeup_state_cannot_alias_reset_cause",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "v & (0xfff << 11) -> v",
+    "target": "review_core",
+    "test": "wakeup_state_cannot_alias_reset_cause",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "0 => 6, 1 => 3, 2 => 2, _ => 12 -> 0 => 6, 1 => 2, 2 => 2, _ => 12",
+    "target": "review_core",
+    "test": "selected_cpu_clock_scales_instruction_and_idle_time",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "} else { 12 } -> } else { 2 }",
+    "target": "review_core",
+    "test": "selected_cpu_clock_scales_instruction_and_idle_time",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/bus.rs",
+    "mutation": "self.clock_half = half & 1; -> self.clock_half = 0;",
+    "target": "review_core",
+    "test": "clock_fraction_and_lact_follow_frequency_changes",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "Some(self.cpu_cycles_for_bus(u64::from(n)).max(1)) -> Some(u64::from(n).max(1))",
+    "target": "review_core",
+    "test": "clock_conversion_bounds_stop_and_peripheral_deadlines",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/soc.rs",
+    "mutation": "cycles.saturating_mul(2).saturating_sub(self.clock_half).div_ceil(self.periph.cpu_scale_half()) -> cycles",
+    "target": "review_core",
+    "test": "clock_conversion_bounds_stop_and_peripheral_deadlines",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "0 => 6, 1 => 3, 2 => 2, _ => 12 -> 0 => 2, 1 => 3, 2 => 2, _ => 12",
+    "target": "review_core",
+    "test": "selected_cpu_clock_scales_instruction_and_idle_time",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "0 => 6, 1 => 3, 2 => 2, _ => 12 -> 0 => 6, 1 => 3, 2 => 6, _ => 12",
+    "target": "review_core",
+    "test": "selected_cpu_clock_scales_instruction_and_idle_time",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/bus.rs",
+    "mutation": "self.periph.tick(elapsed); -> self.periph.tick(u64::from(cycles));",
+    "target": "review_core",
+    "test": "clock_fraction_and_lact_follow_frequency_changes",
+    "killed": true
+  },
+  {
+    "file": "esp-soc/src/machine.rs",
+    "mutation": "S::IDLE_CHUNK.min(max_insns - n).min(self.bus.cpu_cycles_for_bus(self.max_cycles - self.bus.cycles())) -> S::IDLE_CHUNK.min(max_insns - n).min(self.max_cycles - self.bus.cycles())",
+    "target": "review_core",
+    "test": "clock_conversion_bounds_stop_and_peripheral_deadlines",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "== 0 { 6 } else { 3 } -> == 0 { 3 } else { 3 }",
+    "test": "xtal_apb_lact_prescaler_counts_real_milliseconds",
+    "killed": true,
+    "target": "review_core"
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "self.apb_phase = phase % 6; -> self.apb_phase = 0;",
+    "test": "apb_phase_and_deadlines_follow_xtal_pll_switches",
+    "killed": true
+  },
+  {
+    "file": "esp32/src/periph.rs",
+    "mutation": "t.saturating_sub(1).saturating_mul(self.apb_divider()) -> t.saturating_sub(1).saturating_mul(3)",
+    "test": "apb_phase_and_deadlines_follow_xtal_pll_switches",
+    "killed": true
+  }
+]

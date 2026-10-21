@@ -1,0 +1,447 @@
+--- parent
+
++++ head
+
+@@ -1106,5 +1106,5 @@
+
+ ldr	x0, [sp, #0x10]
+ bl	<DATA>
+-mov	w23, #-0x40800000
++mov	w10, #-0x40800000
+ ldr	x21, [x19, #0x1c8]
+ cmn	x21, #0x1
+@@ -1115,5 +1115,5 @@
+
+ str	x9, [x19, #0x1c8]
+ str	w8, [sp, #0x90]
+-add	w8, w8, w23
++add	w8, w8, w10
+ add	x9, x2, x8
+ ldr	x10, [x19, #0x2328]
+@@ -1194,5 +1194,5 @@
+
+ cmp	w10, #0x6
+ b.ne	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	x11, #0x0
++mov	x21, #0x0
+ mov	w10, #0x1
+ and	w9, w9, w10
+@@ -1205,5 +1205,5 @@
+
+ cmp	w10, #0x6
+ b.ne	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	w11, #0x1
++mov	w21, #0x1
+ mov	w10, #0x1
+ and	w9, w9, w10
+@@ -1217,5 +1217,5 @@
+
+ b.ne	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mov	w10, #0x1
+-mov	w11, #0x2
++mov	w21, #0x2
+ and	w9, w9, w10
+ tbnz	w9, #0x0, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+@@ -1228,5 +1228,5 @@
+
+ b.ne	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mov	w10, #0x1
+-mov	w11, #0x3
++mov	w21, #0x3
+ and	w9, w9, w10
+ tbnz	w9, #0x0, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+@@ -1239,115 +1239,54 @@
+
+ ands	w10, w10, w11
+ mov	w11, #0x4
+-cinc	x11, x11, eq
++cinc	x21, x11, eq
+ and	w9, w9, w10
+ tbz	w9, #0x0, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mov	w9, #0x1
+-stp	xzr, x9, [sp, #0x90]
+-str	xzr, [sp, #0xa0]
++stp	xzr, x9, [x29, #-0xa0]
++stur	xzr, [x29, #-0x90]
+ cmp	x8, #0x4
+ b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	x21, #0x0
+-mov	w0, #0x0
+-mov	w9, #0x2c
+-umaddl	x8, w8, w9, x19
+-mov	w9, #0x17e8
+-add	x9, x8, x9
+-stp	x11, x9, [sp, #0x38]
+-ldr	w28, [x8, #0x1804]
+-mov	w8, #0xfff
+-mov	w25, #0x1
+-cbz	w28, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	x24, x28
+-mov	x26, x8
+-ldr	x8, [x19, #0x2328]
+-add	w9, w28, w23
+-add	x10, x9, #0x4
+-ldr	x22, [x19, #0x2320]
+-cmp	x10, x8
+-b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	w27, #0x0
+-add	w9, w23, w24
+-add	w10, w9, #0x4
+-add	x11, x10, #0x4
+-cmp	x11, x8
+-b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	w10, [x22, x10]
+-mov	w11, #-0x40800000
+-add	w23, w10, w11
+-add	w9, w9, #0x8
+-add	x10, x9, #0x4
+-cmp	x10, x8
+-b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	w28, [x22, x9]
+-ubfx	w20, w27, #12, #12
+-add	x9, x23, x20
+-cmp	x9, x8
+-b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	w27, [x22, x9]
+-add	w9, w23, w24
+-add	w10, w9, #0x4
+-add	x11, x10, #0x4
+-cmp	x11, x8
+-b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	w23, #-0x40800000
+-add	w9, w9, #0x8
+-add	x10, x9, #0x4
+-cmp	x10, x8
+-b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	w28, #0x0
+-ubfx	w20, w27, #12, #12
+-add	x9, x23, x20
+-cmp	x9, x8
+-b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-cbz	x22, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	x8, [sp, #0x90]
+-sub	x8, x8, x21
+-cmp	x8, x20
+-b.lo	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-cbz	w20, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-add	x0, x25, x21
+-add	x1, x22, x23
+-mov	x2, x20
+-bl	<DATA>
+-add	x21, x21, x20
+-str	x21, [sp, #0xa0]
+-tbnz	w27, #0x1e, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-sub	w8, w26, #0x1
+-mov	x0, x24
+-mov	w23, #-0x40800000
+-cbnz	w26, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++ldr	x9, [x19, #0x2328]
++ldr	x10, [x19, #0x2320]
++mov	w11, #0x2c
++umaddl	x8, w8, w11, x19
++mov	w11, #0x17e8
++add	x20, x8, x11
++mov	w8, #0x40800000
++str	w8, [sp, #0xe8]
++stp	x10, x9, [sp, #0xd0]
++str	x20, [sp, #0xe0]
+ add	x0, sp, #0x90
+-mov	x1, x21
+-mov	x2, x20
+-mov	w3, #0x1
+-mov	w4, #0x1
+-bl	<<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>>
+-ldp	x25, x21, [sp, #0x98]
+-b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	x24, x0
+-ldr	x10, [sp, #0x40]
+-strb	wzr, [x10, #0x28]
+-str	wzr, [x10, #0x1c]
+-str	w24, [x10, #0x24]
+-ldr	w8, [x10, #0x8]
+-mov	w9, #0xb
+-orr	w8, w8, w9
+-str	w8, [x10, #0x8]
+-ldr	x20, [sp, #0x98]
++add	x1, sp, #0xd0
++sub	x3, x29, #0xa0
++mov	x2, #-0x1
++bl	<esp_periph::gdma::transmit::gather_out::<esp_periph::gdma::transmit::SramOut>>
++strb	wzr, [x20, #0x28]
++str	wzr, [x20, #0x20]
++ldrb	w8, [sp, #0x90]
++cmp	w8, #0xff
++b.eq	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++mov	w8, #0x4
++b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++ldr	w8, [sp, #0x94]
++str	w8, [x20, #0x1c]
++mov	w8, #0x8
++ldr	w9, [x20, #0x8]
++orr	w8, w9, w8
++str	w8, [x20, #0x8]
++mov	w8, #0x1
++strb	w8, [x22, #0x1]
++ldp	x20, x3, [x29, #-0x98]
+ add	x0, sp, #0xd0
+ add	x1, x19, #0xe70
+ mov	x2, x20
+-mov	x3, x21
+ bl	<<esp_periph::aes::Aes>::transform_blocks>
+-str	x20, [sp, #0x30]
+-ldr	x11, [sp, #0x38]
+-cmp	x11, #0x4
++str	x20, [sp, #0x38]
++cmp	x21, #0x4
+ b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mov	x8, #0x0
+ mov	w9, #0x0
+ mov	w10, #0x30
+-umaddl	x10, w11, w10, x19
++umaddl	x10, w21, w10, x19
+ mov	w11, #0x16f8
+ add	x11, x10, x11
+@@ -1442,8 +1381,8 @@
+
+ mov	x0, x21
+ bl	<DATA>
+-ldr	x8, [sp, #0x90]
++ldur	x8, [x29, #-0xa0]
+ ldr	x22, [sp, #0x60]
+ cbz	x8, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	x0, [sp, #0x30]
++ldr	x0, [sp, #0x38]
+ bl	<DATA>
+ mov	w8, #0x2
+@@ -1663,5 +1602,5 @@
+
+ cmn	x25, #0x1
+ b.eq	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	x0, [sp, #0x70]
++ldr	x26, [sp, #0x70]
+ ldr	w8, [x19, #0x1c18]
+ cbz	w8, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+@@ -1679,5 +1618,5 @@
+
+ cmp	x9, x27
+ b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	w28, #0x0
++mov	w20, #0x0
+ mov	w8, w8
+ add	x9, x8, #0x8
+@@ -1685,5 +1624,5 @@
+
+ b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ add	x9, x8, #0x4
+-ldr	w20, [x10, x9]
++ldr	w28, [x10, x9]
+ add	x9, x8, #0xc
+ cmp	x9, x27
+@@ -1692,10 +1631,10 @@
+
+ ldr	w9, [x10, x8]
+ b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	w28, [x10, x8]
++ldr	w20, [x10, x8]
+ mov	w8, w8
+ add	x9, x8, #0x8
+ cmp	x9, x27
+ b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-mov	w20, #0x0
++mov	w28, #0x0
+ add	x9, x8, #0xc
+ cmp	x9, x27
+@@ -1704,11 +1643,11 @@
+
+ ldr	x8, [sp, #0x58]
+ ldrb	w13, [x8, #0x3de]
+-stp	w28, w20, [sp, #0x88]
++stp	w20, w28, [sp, #0x88]
+ stur	w9, [x29, #-0x64]
+ add	x12, x21, #0x60
+-and	w8, w28, #0x3fff
++and	w8, w20, #0x3fff
+ cmp	x12, x8
+ mov	w8, #-0x40000000
+-ccmp	w28, w8, #0x0, ls
++ccmp	w20, w8, #0x0, ls
+ b.lt	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ ldr	x8, [x19, #0x1bf8]
+@@ -1716,4 +1655,5 @@
+
+ str	x8, [x19, #0x1bf8]
+ cbz	x25, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++mov	x0, x26
+ bl	<DATA>
+ ldr	x8, [x19, #0x2790]
+@@ -1735,14 +1675,11 @@
+
+ add	sp, sp, #0x1d0
+ ret
+-str	x10, [sp, #0x58]
+-mov	w26, #0xd8
+-movk	w26, #0x3000, lsl #16
+ cmp	x21, #0x4
+-str	x0, [sp, #0x40]
++stp	x10, x26, [sp, #0x38]
+ str	w11, [sp, #0x30]
+ str	w9, [sp, #0x28]
+ str	w13, [sp, #0x20]
+ b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldrb	w8, [x0, #0x4]
++ldrb	w8, [x26, #0x4]
+ movi.2d	v0, #0000000000000000
+ stur	q0, [sp, #0xbc]
+@@ -1752,8 +1689,12 @@
+
+ mov	w8, #0xd8
+ movk	w8, #0x1000, lsl #16
+-csel	w26, w26, w8, eq
++mov	w9, #0xd8
++movk	w9, #0x3000, lsl #16
++csel	w26, w9, w8, eq
+ b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ movi.2d	v0, #0000000000000000
+ stur	q0, [sp, #0xbc]
++mov	w26, #0xd8
++movk	w26, #0x3000, lsl #16
+ stp	q0, q0, [sp, #0xa0]
+ str	q0, [sp, #0x90]
+@@ -1762,5 +1703,5 @@
+
+ cbz	x0, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mov	x22, x0
+-str	wzr, [sp, #0x38]
++str	wzr, [sp, #0x58]
+ ldp	q0, q1, [sp, #0x90]
+ stur	q0, [x0, #0x18]
+@@ -1784,12 +1725,11 @@
+
+ sub	x8, x8, x1
+ cmp	x8, #0x3
+-mov	w23, #-0x40800000
+-ldr	x26, [sp, #0x58]
+-b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	w8, [sp, #0x38]
+-str	w8, [x22, x1]
++mov	w8, #-0x40800000
++b.ls	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++ldr	w9, [sp, #0x58]
++str	w9, [x22, x1]
+ add	x2, x1, #0x4
+ stur	x2, [x29, #-0x70]
+-add	w8, w20, w23
++add	w8, w28, w8
+ add	x9, x2, x8
+ cmp	x9, x27
+@@ -1798,21 +1738,28 @@
+
+ add	x8, x8, #0x1
+ str	x8, [x19, #0x1bf8]
+-b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++ldur	x8, [x29, #-0x80]
++cbz	x8, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++mov	x0, x22
++bl	<DATA>
++ldr	x26, [sp, #0x40]
++b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++mov	w26, #-0x40800000
+ ldr	w9, [sp, #0x30]
+ ldr	w10, [sp, #0x20]
+-and	w20, w9, w10
+-add	x0, x26, x8
++and	w23, w9, w10
++ldr	x28, [sp, #0x38]
++add	x0, x28, x8
+ mov	x1, x22
+ bl	<DATA>
+ ldr	w8, [sp, #0x84]
+-add	w9, w8, w23
++add	w9, w8, w26
+ add	x10, x9, #0x4
+ cmp	x10, x27
+ b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-and	w10, w28, #0xf0003fff
++and	w10, w20, #0xf0003fff
+ add	x11, x21, #0x60
+ orr	w10, w10, w11, lsl #14
+ orr	w10, w10, #0x40000000
+-str	w10, [x26, x9]
++str	w10, [x28, x9]
+ and	w9, w8, #0xfffff
+ str	w9, [x19, #0x1c1c]
+@@ -1827,8 +1774,9 @@
+
+ orr	w8, w8, #0x4000
+ str	w8, [x19, #0x1c10]
+-tbz	w20, #0x0, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++ldr	x26, [sp, #0x40]
++tbz	w23, #0x0, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ sub	x20, x29, #0xa0
+ sub	x0, x29, #0xa0
+-ldr	x1, [sp, #0x40]
++mov	x1, x26
+ mov	x2, x21
+ bl	<esp_soc::wifi::describe>
+@@ -1861,6 +1809,4 @@
+
+ mov	x0, x22
+ bl	<DATA>
+-ldr	x0, [sp, #0x40]
+-cbnz	x25, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ adrp x3
+@@ -1881,8 +1827,8 @@
+
+ mov	w3, #0x1
+ mov	w4, #0x1
++ldr	x26, [sp, #0x40]
+ bl	<<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>>
+ ldp	x22, x23, [x29, #-0x78]
+ add	x0, x22, x23
+-ldr	x26, [sp, #0x40]
+ mov	x1, x26
+ mov	x2, x21
+@@ -1902,10 +1848,9 @@
+
+ b.ne	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mvn	w8, w8
+-str	w8, [sp, #0x38]
++str	w8, [sp, #0x58]
+ ldur	x8, [x29, #-0x80]
+ sub	x8, x8, x1
+ cmp	x8, #0x3
+-mov	w23, #-0x40800000
+-ldr	x26, [sp, #0x58]
++mov	w8, #-0x40800000
+ b.hi	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ sub	x0, x29, #0x80
+@@ -1915,5 +1860,5 @@
+
+ bl	<<alloc::raw_vec::RawVecInner<_>>::reserve::do_reserve_and_handle::<alloc::alloc::Global>>
+ ldp	x22, x1, [x29, #-0x78]
+-ldr	x26, [sp, #0x58]
++mov	w8, #-0x40800000
+ b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ adrp x2
+@@ -1956,5 +1901,4 @@
+
+ mov	w0, #0x17
+ bl	<core::panicking::panic_bounds_check>
+-b	<<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+ mov	x19, x0
+ ldur	x8, [x29, #-0x80]
+@@ -2029,7 +1973,7 @@
+
+ ldr	x0, [sp, #0xd8]
+ bl	<DATA>
+-ldr	x8, [sp, #0x90]
+-cbz	x8, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
+-ldr	x0, [sp, #0x98]
++ldur	x8, [x29, #-0xa0]
++cbz	x8, <<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick>
++ldur	x0, [x29, #-0x98]
+ bl	<DATA>
+ mov	x0, x19

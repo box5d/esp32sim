@@ -61,8 +61,8 @@ impl Systimer {
     pub fn write(&mut self, off: u32, v: u32) {
         match off {
             0x0 => self.conf = v,
-            0x4 => if v & (1 << 30) != 0 { self.unit_latch[0] = self.unit[0]; },
-            0x8 => if v & (1 << 30) != 0 { self.unit_latch[1] = self.unit[1]; },
+            0x4 if v & (1 << 30) != 0 => { self.unit_latch[0] = self.unit[0]; },
+            0x8 if v & (1 << 30) != 0 => { self.unit_latch[1] = self.unit[1]; },
             0xc => self.load[0] = (self.load[0] & 0xffff_ffff) | ((v as u64 & 0xfffff) << 32), 0x10 => self.load[0] = (self.load[0] & !0xffff_ffff) | v as u64,
             0x14 => self.load[1] = (self.load[1] & 0xffff_ffff) | ((v as u64 & 0xfffff) << 32), 0x18 => self.load[1] = (self.load[1] & !0xffff_ffff) | v as u64,
             0x1c => self.target[0] = (self.target[0] & 0xffff_ffff) | ((v as u64 & 0xfffff) << 32), 0x20 => self.target[0] = (self.target[0] & !0xffff_ffff) | v as u64,
