@@ -102,7 +102,7 @@ impl esp_soc::SocBus for SocBus {
                     return Err(format!("segment {:#x} not page-aligned with flash offset {:#x}", s.load_addr, start));
                 }
                 let first_page = (start as u32) >> 16;
-                if !s.load_addr.checked_add(s.len).is_some_and(|end| end <= IBUS_HIGH) {
+                if s.load_addr.checked_add(s.len).is_none_or(|end| end > IBUS_HIGH) {
                     return Err("segment beyond the flash window".into());
                 }
                 let npages = ((s.load_addr & 0xffff) + s.len + 0xffff) >> 16;

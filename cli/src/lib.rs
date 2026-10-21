@@ -414,7 +414,7 @@ fn run_with_reboots<S: Soc>(m: &mut Machine<S>, mut remaining: u64, reboot: bool
             let cause = m.bus.reset_cause();
             eprintln!("[emu] chip reset at t={:.3}s: cause {:#x} ({})", m.seconds(), cause, esp_periph::reset_cause_name(cause));
             let button = m.take_button_reset();
-            if !reboot && !(button && app) { return stop; }
+            if !(reboot || button && app) { return stop; }
             if remaining == 0 { return Stop::MaxInsns; }
             m.reboot();
             if !reboot {

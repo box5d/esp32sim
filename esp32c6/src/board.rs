@@ -62,7 +62,7 @@ impl BoardModel for WaveshareC6Lcd147 {
             self.gpio_events += 1;
             match pin {
                 PIN_LCD_DC => self.panel.dc = level,
-                PIN_LCD_RST => if !level { self.panel.reset(); },
+                PIN_LCD_RST if !level => self.panel.reset(),
                 PIN_LCD_BL => self.backlight = level,
                 _ => {}
             }

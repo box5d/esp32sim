@@ -92,7 +92,7 @@ impl BoardModel for TtgoTDisplay {
             match pin {
                 PIN_LCD_CS => self.cs_high = level,
                 PIN_LCD_DC => self.panel.dc = level,
-                PIN_LCD_RST => if !level { self.panel.reset(); },
+                PIN_LCD_RST if !level => self.panel.reset(),
                 PIN_LCD_BL => self.backlight = level,
                 PIN_ADC_EN => self.adc_enable = level,
                 _ => {}

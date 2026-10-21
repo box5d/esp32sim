@@ -85,7 +85,7 @@ impl esp_soc::SocBus for SocBus {
                     return Err(format!("segment {:#x} not page-aligned with flash offset {:#x}", s.load_addr, start));
                 }
                 let window_end = FLASH_LOW + ((MMU_ENTRIES as u32) << shift);
-                if !s.load_addr.checked_add(s.len).is_some_and(|end| end <= window_end) {
+                if s.load_addr.checked_add(s.len).is_none_or(|end| end > window_end) {
                     return Err("segment beyond the flash window".into());
                 }
                 let first_page = (start as u32) >> shift;
