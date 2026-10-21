@@ -1,0 +1,12 @@
+{
+  "cli/src/lib.rs": "4b78b47a9424098f1ed6fdc953228ca80f2fe2a45c320cca8854f14464e655f3",
+  "cli/tests/ble.rs": "a81285fc422c72fbcad16e1b9db1da681e46c1944eabecc0a63ad297b1311db1",
+  "esp-soc/src/ble/peer.rs": "a3b9ec76044d9d00324efa853e7471baaffcfe85105eca674016ae917572df20",
+  "esp-soc/src/machine.rs": "06137278d6a430ae2cd6a6087ce72b05a9a112aea5a36766b43394ff3682a93b",
+  "esp32c3/src/ble_lc.rs": "a3c8b3a2bc45f4b70773cfd8fa2768bc9a9485c95d1ff7e431cf95453466c211",
+  "esp32c3/src/soc.rs": "213e143d9a9884e92cdd1d621183a8f18f620725dffe1bf3b8a85ca892dcf18b",
+  "esp32c3/tests/ble_full.rs": "8a4cb2910309ed181f7ae21b0be308ba9aaab72d3c847da0d79753e99a8d965d",
+  "examples/c3-ble-server/main/main.c": "a4ee8dbd1985577ae299f4778ed2e6b0a59d774834fa4faedaa05c84f51b451a",
+  "wasm/src/ble.rs": "d24e10749c9316e9fc7aa1833ebd1ee6942f97942f8d7e508bd79a5a7182e67c",
+  "wasm/tests/ble-connection.mjs": "a917196a4c1533a06a78a0753c8172c84374a50ba715af9fe4eaca5576f86736"
+}

@@ -1,0 +1,23 @@
+--- parent
+
++++ head
+
+@@ -135,4 +135,7 @@
+
+ mov	x2, x20
+ bl	<<esp32s3::bus::SocBus>::periph_write_inner>
++mov	w8, #0x1ac3
++ldrb	w8, [x19, x8]
++tbnz	w8, #0x1, <<esp32s3::bus::SocBus as emu_core::bus::Bus>::write32>
+ mov	x0, x19
+ bl	<<esp32s3::bus::SocBus>::refresh_tick_budget>
+@@ -292,4 +295,8 @@
+
+ add	x3, x3, #PAGEOFF
+ bl	<core::slice::index::slice_index_fail>
++mov	x0, x19
++mov	x1, x21
++bl	<<esp32s3::bus::SocBus>::rmt_dma_write>
++b	<<esp32s3::bus::SocBus as emu_core::bus::Bus>::write32>
+ adrp x2
+ add	x2, x2, #PAGEOFF

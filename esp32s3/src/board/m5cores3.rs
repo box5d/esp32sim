@@ -8,10 +8,11 @@
 //!   - IMU: BMI270 on I2C0 @0x69
 //!   - Audio Codec: ES7210 on I2C0 @0x40 + I2S
 //!   - Audio Amp: AW88298 on I2C0 @0x36 + I2S
+//!   - Camera: GC0308 on I2C0 @0x21, RGB565 or YUYV over the LCD_CAM DVP port
 
 use esp_soc::board::{BoardEdge, BoardModel, VirtualCycle};
 use esp_soc::devices::DcsPanel;
-use esp_soc::picture::{self, Picture};
+use esp_soc::picture::{self, Picture, PixelFormat};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +28,33 @@ pub const PIN_SD_CS: u8 = 4;
 pub const LCD_WIDTH: u32 = 320;
 pub const LCD_HEIGHT: u32 = 240;
 
+/// Camera sensor frame the guest demo requests before the host picks a picture: an SMB Bartholomäus
+/// colour-bar pattern that makes geometry and channel order visible (RGB565 or YUYV alike).
+fn test_pattern(w: u32, h: u32) -> Picture {
+    let colors = [
+        [255, 255, 255], // White
+        [255, 255, 0],   // Yellow
+        [0, 255, 255],   // Cyan
+        [0, 255, 0],     // Green
+        [255, 0, 255],   // Magenta
+        [255, 0, 0],     // Red
+        [0, 0, 255],     // Blue
+        [30, 30, 30],    // Dark Gray
+    ];
+    let mut rgb = vec![0u8; (w * h * 3) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            let bar = (x * 8 / w) as usize;
+            let c = colors[bar.min(7)];
+            let idx = ((y * w + x) * 3) as usize;
+            rgb[idx] = c[0];
+            rgb[idx + 1] = c[1];
+            rgb[idx + 2] = c[2];
+        }
+    }
+    Picture { w, h, rgb }
+}
+
 pub struct M5CoreS3 {
     pub tft: DcsPanel,
     pub touch_state: Arc<Mutex<crate::i2c::TouchState>>,
@@ -38,9 +66,11 @@ pub struct M5CoreS3 {
     pub edges: Vec<BoardEdge>,
     pub pending_touch_irq: Option<(VirtualCycle, bool)>,
     pub pending_touch_final: Option<bool>,
+    /// The QMI8658-style scripted motion (0 = follow the browser stream).
+    pub motion: Arc<crate::i2c::ImuMotion>,
     pub imu_state: Arc<Mutex<crate::i2c::ImuState>>,
     pub sensor_state: Arc<Mutex<crate::i2c::SensorState>>,
-    pub picture: Option<esp_soc::picture::Picture>,
+    pub picture: Option<picture::Picture>,
     pub camera_frame_cache: Option<(u32, u32, Arc<Vec<u8>>)>,
     camera_frame_format: u8,
     pub camera_frames: u64,
@@ -65,14 +95,17 @@ impl M5CoreS3 {
             edges: Vec::new(),
             pending_touch_irq: None,
             pending_touch_final: None,
+            motion: Arc::new(crate::i2c::ImuMotion::default()),
             imu_state: Arc::new(Mutex::new(crate::i2c::ImuState::default())),
             sensor_state: Arc::new(Mutex::new(crate::i2c::SensorState {
                 width: 160,
                 height: 120,
                 format: 2,
                 streaming: true,
+                window: None,
+                jpeg: false,
             })),
-            picture: Some(esp_soc::picture::default_test_pattern(160, 120)),
+            picture: Some(test_pattern(160, 120)),
             camera_frame_cache: None,
             camera_frame_format: 2,
             camera_frames: 0,
@@ -206,9 +239,8 @@ impl BoardModel for M5CoreS3 {
                 }
             }
             0x0a => {
-                if !resp.is_empty() {
-                    resp[0] = 0x08;
-                }
+                // rx_len > 0 here: the rx_len == 0 case returned above.
+                resp[0] = 0x08;
             }
             _ => {}
         }
@@ -236,88 +268,47 @@ impl BoardModel for M5CoreS3 {
             (0x20, 0xff), // DCDC on
             (0x80, 0x01), // Charging status
         ];
-        vec![
-            // I2C0 Bus (Wire)
-            (0, 0x34, Box::new(Reg8Device::new("axp2101", axp_regs))),
-            (0, 0x58, Box::new(Aw9523::new(self.aw9523_p1.clone()))),
-            (0, 0x38, Box::new(Ft6336::new(self.touch_state.clone()))),
-            (0, 0x21, Box::new(Gc0308::new(self.sensor_state.clone()))),
-            (0, 0x23, Box::new(crate::i2c::Ltr553::new())),
-            (
-                0,
-                0x51,
-                Box::new(Reg8Device::new(
-                    "bm8563",
-                    &[(0x02, 0x00), (0x03, 0x00), (0x04, 0x12)],
-                )),
-            ),
-            (0, 0x69, Box::new(Bmi270::new(self.imu_state.clone()))),
-            (
-                0,
-                0x40,
-                Box::new(Reg8Device::new("es7210", &[(0x3d, 0x72), (0x3e, 0x10)])),
-            ),
-            (
-                0,
-                0x36,
-                Box::new(Reg8Device::new("aw88298", &[(0x00, 0x18)])),
-            ),
-            (
-                0,
-                0x0c,
-                Box::new(Reg8Device::new("ak09918", &[(0x00, 0x48), (0x01, 0x0c)])),
-            ),
-            (
-                0,
-                0x10,
-                Box::new(Reg8Device::new("bmm150", &[(0x40, 0x32)])),
-            ),
-            (
-                0,
-                0x68,
-                Box::new(Reg8Device::new("bm8563_alt", &[(0x00, 0x00)])),
-            ),
-            // I2C1 Bus (Wire1 - for peripherals mapped to secondary bus)
-            (1, 0x34, Box::new(Reg8Device::new("axp2101", axp_regs))),
-            (1, 0x58, Box::new(Aw9523::new(self.aw9523_p1.clone()))),
-            (1, 0x38, Box::new(Ft6336::new(self.touch_state.clone()))),
-            (1, 0x21, Box::new(Gc0308::new(self.sensor_state.clone()))),
-            (1, 0x23, Box::new(crate::i2c::Ltr553::new())),
-            (
-                1,
-                0x51,
-                Box::new(Reg8Device::new(
-                    "bm8563",
-                    &[(0x02, 0x00), (0x03, 0x00), (0x04, 0x12)],
-                )),
-            ),
-            (1, 0x69, Box::new(Bmi270::new(self.imu_state.clone()))),
-            (
-                1,
-                0x40,
-                Box::new(Reg8Device::new("es7210", &[(0x3d, 0x72), (0x3e, 0x10)])),
-            ),
-            (
-                1,
-                0x36,
-                Box::new(Reg8Device::new("aw88298", &[(0x00, 0x18)])),
-            ),
-            (
-                1,
-                0x0c,
-                Box::new(Reg8Device::new("ak09918", &[(0x00, 0x48), (0x01, 0x0c)])),
-            ),
-            (
-                1,
-                0x10,
-                Box::new(Reg8Device::new("bmm150", &[(0x40, 0x32)])),
-            ),
-            (
-                1,
-                0x68,
-                Box::new(Reg8Device::new("bm8563_alt", &[(0x00, 0x00)])),
-            ),
-        ]
+        let core_buses: [(u8, &str); 12] = [
+            (0x34, "axp2101"), // PMU
+            (0x58, "aw9523"),  // IO expander
+            (0x38, "ft6336"),  // touch controller
+            (0x21, "gc0308"),  // camera sensor
+            (0x23, "ltr553"),  // ambient light / proximity sensor
+            (0x51, "bm8563"),  // RTC
+            (0x69, "bmi270"),  // IMU
+            (0x40, "es7210"),  // audio codec
+            (0x36, "aw88298"), // audio amp
+            (0x0c, "ak09918"), // magnetometer (secondary device)
+            (0x10, "bmm150"),  // magnetometer (BMI270 AUX device)
+            (0x68, "bm8563_alt"),
+        ];
+        let mut list = Vec::with_capacity(24);
+        for bus in [0u8, 1u8] {
+            // CoreS3 exposes the eWire window over both I2C controllers in the simplest firmware
+            // builds; mirror the peripheral set on bus 1 so either Wire instance finds every chip.
+            list.extend(core_buses.iter().map(|&(addr, name)| {
+                let device: Box<dyn crate::i2c::I2cDevice> = match name {
+                    "aw9523" => Box::new(Aw9523::new(self.aw9523_p1.clone())),
+                    "ft6336" => Box::new(Ft6336::new(self.touch_state.clone())),
+                    "gc0308" => Box::new(Gc0308::new(self.sensor_state.clone())),
+                    "ltr553" => Box::new(Ltr553::new()),
+                    "bmi270" => Box::new(Bmi270::new(self.motion.clone(), self.imu_state.clone())),
+                    "axp2101" => Box::new(Reg8Device::new("axp2101", axp_regs)),
+                    "bm8563" => Box::new(Reg8Device::new(
+                        "bm8563",
+                        &[(0x02, 0x00), (0x03, 0x00), (0x04, 0x12)],
+                    )),
+                    "es7210" => Box::new(Reg8Device::new("es7210", &[(0x3d, 0x72), (0x3e, 0x10)])),
+                    "aw88298" => Box::new(Reg8Device::new("aw88298", &[(0x00, 0x18)])),
+                    "ak09918" => Box::new(Reg8Device::new("ak09918", &[(0x00, 0x48), (0x01, 0x0c)])),
+                    "bmm150" => Box::new(Reg8Device::new("bmm150", &[(0x40, 0x32)])),
+                    "bm8563_alt" => Box::new(Reg8Device::new("bm8563_alt", &[(0x00, 0x00)])),
+                    _ => unreachable!("CoreS3 I2C device table covers every name"),
+                };
+                (bus, addr, device)
+            }));
+        }
+        list
     }
 
     fn display(&self) -> Option<(u32, u32, Vec<u16>, u64)> {
@@ -361,6 +352,9 @@ impl BoardModel for M5CoreS3 {
     }
 
     fn advance_to(&mut self, cycle: VirtualCycle) {
+        use std::sync::atomic::Ordering::Relaxed;
+        // The IMU's scripted motion reads guest time from the clock the board keeps.
+        self.motion.cycle.store(cycle, Relaxed);
         assert!(
             cycle >= self.cycle,
             "board time moved backwards from {} to {}",
@@ -411,6 +405,26 @@ impl BoardModel for M5CoreS3 {
         std::mem::take(&mut self.edges)
     }
 
+    fn set_imu_motion(&mut self, mode: u32) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.motion.mode.store(mode, Relaxed);
+        let mut state = self.imu_state.lock().unwrap();
+        match mode {
+            0 => {
+                // Back to the browser-driven stream: a still default until a message arrives.
+                *state = crate::i2c::ImuState::default();
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn imu_motion(&self) -> u32 {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.motion.mode.load(Relaxed)
+    }
+
+    /// Live sensor values from the browser (m/s^2 and dps) flow into the BMI270 model.
     fn set_imu_state(&mut self, ax: f32, ay: f32, az: f32, gx: f32, gy: f32, gz: f32) {
         let mut imu = self.imu_state.lock().unwrap();
         imu.ax = ax;
@@ -421,9 +435,13 @@ impl BoardModel for M5CoreS3 {
         imu.gz = gz;
     }
 
-    fn set_camera_picture(&mut self, p: Picture) {
+    fn set_camera_picture(&mut self, p: Picture) -> Result<(), &'static str> {
+        if !p.valid() {
+            return Err("invalid camera picture or frame exceeds 8 MiB");
+        }
         self.picture = Some(p);
         self.camera_frame_cache = None;
+        Ok(())
     }
 
     fn camera_preview(&self, w: u32, h: u32) -> Option<Vec<u8>> {
@@ -458,15 +476,15 @@ impl BoardModel for M5CoreS3 {
             let p = match self.picture.as_ref() {
                 Some(pic) => pic,
                 None => {
-                    default_pic = picture::default_test_pattern(w, h);
+                    default_pic = test_pattern(w, h);
                     &default_pic
                 }
             };
-            // GC0308 OUTPUT_FMT (page 0, register 0x24) selects the DVP format.
-            // The CoreS3 demo requests RGB565 and sends the framebuffer directly
-            // to the LCD; returning YUYV here corrupts the phone camera image.
+            // GC0308 OUTPUT_FMT (page 0, register 0x24) selects the DVP format. The
+            // CoreS3 demo requests RGB565 (0x6) and sends the framebuffer directly
+            // to the LCD; other values give the bus YUYV as esp32-camera would.
             let pixels = if format == 6 {
-                picture::to_rgb565(p, w, h)
+                picture::sensor_frame(p, w, h, PixelFormat::Rgb565).unwrap_or_else(|| picture::to_yuyv(p, w, h))
             } else {
                 picture::to_yuyv(p, w, h)
             };

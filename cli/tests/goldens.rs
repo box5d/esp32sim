@@ -66,6 +66,10 @@ fn panel_sid() {
         "--flash-at", &format!("0x610000={FW}/energydata.json"),
         "--script", &format!("{FW}/panel-sid.txt"), "--wav", wav.to_str().unwrap(), "--max-seconds", "7"]);
     expect_text("panel-sid.console.txt", &r.stdout);
+    let events = r.stderr.lines().find(|l| l.starts_with("[emu] stop:")).and_then(|l| l.rsplit_once("); ")).map_or("", |(_, e)| e);
+    let report: String = std::iter::once(events).chain(r.stderr.lines().filter(|l| l.starts_with("  core")))
+        .map(|l| format!("{l}\n")).collect();
+    expect_text("panel-sid.report.txt", &report);
     expect_sha("panel-sid.wav.sha256", &std::fs::read(&wav).unwrap());
     expect_u64("panel-sid.insns", r.insns);
 }
@@ -146,6 +150,9 @@ fn hello_world_c3() {
 }
 
 /// The C3's esp_restart() path: a software CPU reset, back through the ROM with the right cause.
+/// In this unmodeled RV32 path the reported count includes idle cycles and survives reset.
+/// A reset charges only its executed partial round, so the 12 s count is 12 * 160 MHz;
+/// charging a full reset round previously added device time without matching core work.
 #[test] #[ignore = "needs the ESP32-C3 mask ROM ELF"]
 fn hello_world_c3_reboot() {
     let rom = rom("esp32c3_rev3");
@@ -179,6 +186,7 @@ fn hello_world_c6() {
 
 /// The C6's esp_restart() path: a software CPU reset through LP_AON, back through the ROM with
 /// the right cause and the ROM's `Saved PC` line.
+/// As on the C3, partial-reset accounting preserves the 12 * 160 MHz reported count.
 #[test] #[ignore = "needs the ESP32-C6 mask ROM ELF"]
 fn hello_world_c6_reboot() {
     let rom = rom("esp32c6_rev0");
@@ -210,4 +218,124 @@ fn external_energy_scan_c6() {
     assert!(lcd.contains("RAMWR") && lcd.contains("updates"), "no board report:\n{}", r.stderr);
     expect_text("energy-scan-c6.console.txt", &r.stdout);
     expect_u64("energy-scan-c6.insns", r.insns);
+}
+
+/// The WiFi station (`examples/c6-wifi-station`, built with ESP-IDF 5.5.4 for each chip with the
+/// emulator's default network and no display, `sdkconfig.ci.defaults`): the unmodified WiFi
+/// library scans, finds the virtual access point, joins it through the WPA2 four-way handshake,
+/// takes a DHCP lease and gets five of five gateway pings answered. The station's own lines are
+/// the same on every chip and are what the board prints against a real network; the console and
+/// the instruction count pin the run bit for bit, and the end-of-run counts pin the radio traffic
+/// and the interrupts (on the C3 and C6 the instruction count is the cycle count, so a change in
+/// the WiFi model's timing shows only in the interrupt count). This is the bar for changes to the
+/// WiFi model.
+fn wifi_station(chip: &str, bin: &str, rom_name: &str, extra: &[&str]) {
+    let rom = rom(rom_name);
+    let mut args = vec!["--rom", rom.to_str().unwrap(), "--boot", "rom", "--flash-mb", "4", "--console", "usb", "--no-dump"];
+    let (bl, pt, app) = (format!("{FW}/{chip}-wifi-bootloader.bin"), format!("{FW}/{chip}-wifi-ptable.bin"), format!("{FW}/{chip}-wifi_station.bin"));
+    args.extend(["--bootloader", &bl, "--ptable", &pt, "--app", &app, "--wifi", "ssid=esp32sim,psk=esp32sim-pass", "--net", "none", "--max-seconds", "14"]);
+    args.extend(extra);
+    let r = run(bin, &args);
+    assert!(!r.stdout.contains("Guru Meditation") && !r.stdout.contains("assert failed"), "the app panicked:\n{}", r.stdout);
+    let station: String = r.stdout.lines().filter_map(|l| l.split_once("station: ").map(|(_, rest)| rest.trim_end_matches("\u{1b}[0m"))).map(|l| format!("{l}\n")).collect();
+    assert!(station.contains("GOT_IP ip=10.0.2.15") && station.contains("PING done sent=5 received=5"), "the station did not get through:\n{}\n{}", station, r.stderr);
+    expect_text(&format!("wifi-station-{chip}.station.txt"), &station);
+    expect_text(&format!("wifi-station-{chip}.console.txt"), &r.stdout);
+    let events = r.stderr.lines().find(|l| l.starts_with("[emu] stop:")).and_then(|l| l.rsplit_once("); ")).map_or("", |(_, e)| e);
+    let report: String = std::iter::once(events).chain(r.stderr.lines().filter(|l| l.starts_with("[emu] wifi:") || l.starts_with("[emu] net:"))).map(|l| format!("{l}\n")).collect();
+    expect_text(&format!("wifi-station-{chip}.report.txt"), &report);
+    expect_u64(&format!("wifi-station-{chip}.insns"), r.insns);
+}
+
+#[test] #[ignore = "needs the ESP32-S3 mask ROM ELF"]
+fn wifi_station_s3() { wifi_station("s3", BIN, "esp32s3_rev0", &["--board", "none"]); }
+
+#[test] #[ignore = "needs the ESP32-C3 mask ROM ELF"]
+fn wifi_station_c3() { wifi_station("c3", BIN_C3, "esp32c3_rev3", &[]); }
+
+/// `bb_init` is the PHY's baseband calibration, which wants analog the emulator does not have;
+/// without the ELF it is stubbed by address (`riscv32-esp-elf-nm`, see the example's README).
+#[test] #[ignore = "needs the ESP32-C6 mask ROM ELF"]
+fn wifi_station_c6() { wifi_station("c6", BIN_C6, "esp32c6_rev0", &["--stub", "0x4207df40=0"]); }
+
+/// The guest controller owns the advertising schedule and handles every END IRQ.
+#[test] #[ignore = "needs the ESP32-C3 mask ROM ELF fetched by CI"]
+fn ble_advertiser_c3() {
+    let rom = rom("esp32c3_rev3");
+    let r = run(BIN_C3, &["--rom", rom.to_str().unwrap(), "--boot", "rom", "--flash-mb", "4", "--no-dump",
+        "--bootloader", &format!("{FW}/c3-ble-bootloader.bin"), "--ptable", &format!("{FW}/c3-ble-ptable.bin"),
+        "--app", &format!("{FW}/c3-ble-advertiser.bin"), "--ble", "full", "--ble-observe", "--max-seconds", "2"]);
+    assert!(r.stdout.contains("advertiser: STARTED"), "{}", r.stdout);
+    assert!(!r.stdout.contains("assert") && !r.stderr.contains("[ble-error]"), "{}\n{}", r.stdout, r.stderr);
+    assert!(r.stderr.contains("0 exceptions"), "{}", r.stderr);
+    let packets: Vec<_> = r.stderr.lines().filter(|line| line.starts_with("[ble-air]")).collect();
+    assert!(packets.len() >= 51 && packets.len().is_multiple_of(3), "must wrap the 16-entry event table");
+    for event in packets.as_chunks::<3>().0 {
+        for (line, channel) in event.iter().zip([37, 38, 39]) {
+            assert!(line.contains(&format!("channel={channel} type=ADV_SCAN_IND")), "{line}");
+            assert!(line.contains("name=\"esp32sim\"") && line.contains("service=180f"), "{line}");
+        }
+    }
+    expect_text("ble-advertiser-c3.console.txt", &r.stdout);
+    let events = r.stderr.lines().find(|l| l.starts_with("[emu] stop:")).and_then(|l| l.rsplit_once("); ")).map_or("", |(_, e)| e);
+    let report: String = std::iter::once(events).chain(r.stderr.lines().filter(|l| l.starts_with("  core") || l.starts_with("[ble-config]")))
+        .map(|l| format!("{l}\n")).collect();
+    expect_text("ble-advertiser-c3.report.txt", &report);
+    expect_text("ble-advertiser-c3.observer.txt", &(packets.join("\n") + "\n"));
+    expect_u64("ble-advertiser-c3.insns", r.insns);
+}
+
+
+fn crypto_tls(chip: &str, bin: &str, rom_name: &str) {
+    let rom = rom(rom_name);
+    let r = run(bin, &["--rom", rom.to_str().unwrap(), "--boot", "rom", "--flash-mb", "4", "--no-dump",
+        "--bootloader", &format!("{FW}/{chip}-crypto-tls-bootloader.bin"),
+        "--ptable", &format!("{FW}/{chip}-crypto-tls-ptable.bin"), "--app", &format!("{FW}/{chip}-crypto-tls.bin"),
+        "--wifi", "ssid=esp32sim,psk=esp32sim-pass", "--net", "none", "--max-seconds", "10"]);
+    assert!(r.stdout.contains("TLS GOT_IP 10.0.2.15"), "{}", r.stdout);
+    assert!(r.stdout.contains("TLS PASS TLSv1.2 TLS-ECDHE-PSK-WITH-AES-128-CBC-SHA256 bidirectional=256"), "{}", r.stdout);
+    assert!(!r.stdout.contains("FAIL") && !r.stdout.contains("assert") && r.stderr.contains("0 exceptions"), "{}\n{}", r.stdout, r.stderr);
+    expect_text(&format!("crypto-tls-{chip}.console.txt"), &r.stdout);
+    let events = r.stderr.lines().find(|l| l.starts_with("[emu] stop:")).and_then(|l| l.rsplit_once("); ")).map_or("", |(_, e)| e);
+    let report: String = std::iter::once(events).chain(r.stderr.lines().filter(|l| l.starts_with("  core") || l.starts_with("[emu] wifi:") || l.starts_with("[emu] net:")))
+        .map(|l| format!("{l}\n")).collect();
+    expect_text(&format!("crypto-tls-{chip}.report.txt"), &report);
+}
+
+#[test] #[ignore = "needs the ESP32-C3 mask ROM ELF fetched by CI"]
+fn crypto_tls_c3() { crypto_tls("c3", BIN_C3, "esp32c3_rev3"); }
+
+#[test] #[ignore = "needs the ESP32-C6 mask ROM ELF fetched by CI"]
+fn crypto_tls_c6() { crypto_tls("c6", BIN_C6, "esp32c6_rev0"); }
+/// The stock countdown includes 10 through 0: eleven one-second delays per reset.
+#[test]
+#[ignore = "needs the ESP32 ECO3 mask ROM ELF"]
+fn classic_reset_clock_and_flash_size() {
+    let rom = rom("esp32_rev300");
+    let r = run(BIN, &["--chip", "esp32", "--rom", rom.to_str().unwrap(), "--board", "esp32dev", "--boot", "rom", "--no-dump", "--console", "uart0", "--flash-mb", "16",
+        "--bootloader", &format!("{FW}/classic-hello-bootloader.bin"), "--ptable", &format!("{FW}/classic-hello-ptable.bin"), "--app", &format!("{FW}/classic-hello_world.bin"), "--max-seconds", "25"]);
+    let resets: Vec<f64> = r.stderr.lines().filter_map(|l| l.strip_prefix("[emu] chip reset at t="))
+        .map(|s| s.split_once('s').unwrap().0.parse().unwrap()).collect();
+    assert_eq!(resets.len(), 2, "{}", r.stderr);
+    for interval in [resets[0], resets[1] - resets[0]] { assert!((11.0..11.1).contains(&interval), "{resets:?}"); }
+    assert_eq!(r.stdout.matches("Detected size(16384k)").count(), 3, "{}", r.stdout);
+    assert!(!r.stdout.contains("Detected size(8192k)"));
+    assert_eq!(r.stdout.matches("Restarting now.").count(), 2);
+    assert!(r.stderr.contains("[emu] stop: Halted"), "{}", r.stderr);
+    assert!(!r.stdout.contains("ESP_ERR_FLASH_SIZE_NOT_MATCH"), "{}", r.stdout);
+}
+
+/// Classic ECO3 ROM, stock IDF bootloader and hello_world application.
+#[test]
+#[ignore = "needs the ESP32 ECO3 mask ROM ELF"]
+fn hello_world_classic() {
+    let rom = rom("esp32_rev300");
+    let r = run(BIN, &["--chip", "esp32", "--rom", rom.to_str().unwrap(), "--board", "esp32dev", "--boot", "rom", "--no-dump", "--console", "uart0",
+        "--bootloader", &format!("{FW}/classic-hello-bootloader.bin"), "--ptable", &format!("{FW}/classic-hello-ptable.bin"), "--app", &format!("{FW}/classic-hello_world.bin"), "--max-seconds", "3"]);
+    for text in ["ets Jul 29 2019", "2nd stage bootloader", "Hello world!"] { assert!(r.stdout.contains(text), "missing {text}: {}", r.stdout); }
+    expect_text("hello-classic.console.txt", &r.stdout);
+    let events = r.stderr.lines().find(|l| l.starts_with("[emu] stop:")).and_then(|l| l.rsplit_once("); ")).map_or("", |(_, e)| e);
+    let report: String = std::iter::once(events).chain(r.stderr.lines().filter(|l| l.starts_with("  core")))
+        .map(|l| format!("{l}\n")).collect();
+    expect_text("hello-classic.report.txt", &report);
 }

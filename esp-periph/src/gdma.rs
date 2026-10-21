@@ -1,5 +1,9 @@
 use crate::device::{Device, WriteEffect};
 use crate::regram::RegRam;
+mod receive;
+pub use receive::{DescriptorWalk, DmaDescriptorFault, DmaDescriptorWord, GDMA_DESCRIPTOR_STEP_BUDGET};
+mod transmit;
+pub use transmit::{gather_out, OutMemory, SramOut};
 
 // ------------------------------------------------------------------ GDMA (out/TX channels only for now) + I2S0 TX
 pub const GDMA_CHANNELS: usize = 5;
@@ -23,7 +27,8 @@ impl GdmaOutCh {
 pub struct GdmaInCh {
     pub conf0: u32, pub conf1: u32, pub int_raw: u32, pub int_ena: u32, pub link: u32, pub peri_sel: u32, pub pri: u32,
     pub desc: u32, pub eof_desc: u32, pub running: bool,
-    pub buf_pos: u32,         // bytes filled in the current descriptor (memory-to-memory copies)
+    pub buf_pos: u32,         // bytes filled in the current descriptor
+    pub rx_eof_pos: u32,      // peripheral bytes since the last receive EOF
 }
 impl GdmaInCh { pub fn irq(&self) -> bool { self.int_raw & self.int_ena != 0 } }
 
@@ -57,11 +62,11 @@ impl Gdma {
             if o < 0x60 {
                 let r = &mut self.inp[ch];
                 match o {
-                    0x00 => { r.conf0 = v & !1; if v & 1 != 0 { r.running = false; r.desc = 0; r.buf_pos = 0; } }   // IN_RST self-clears
+                    0x00 => { r.conf0 = v & !1; if v & 1 != 0 { r.running = false; r.desc = 0; r.buf_pos = 0; r.rx_eof_pos = 0; } }   // IN_RST self-clears
                     0x04 => r.conf1 = v, 0x10 => r.int_ena = v, 0x14 => r.int_raw &= !v,
                     0x20 => {
                         r.link = v & 0xF_FFFF;
-                        if v & (1 << 22) != 0 || v & (1 << 23) != 0 { r.desc = self.addr_base | (v & 0xF_FFFF); r.buf_pos = 0; r.running = true; }   // START / RESTART
+                        if v & (1 << 22) != 0 || v & (1 << 23) != 0 { r.desc = self.addr_base | (v & 0xF_FFFF); r.buf_pos = 0; r.rx_eof_pos = 0; r.running = true; }   // START / RESTART
                         if v & (1 << 21) != 0 { r.running = false; }                                                                 // STOP
                     }
                     0x44 => r.pri = v, 0x48 => r.peri_sel = v & 0x3f,
@@ -87,6 +92,8 @@ impl Gdma {
     }
     /// Find the out channel bound to peripheral `peri` (GDMA_TRIG_PERIPH_*).
     pub fn out_channel_for(&self, peri: u32) -> Option<usize> { (0..GDMA_CHANNELS).find(|&i| self.out[i].running && self.out[i].peri_sel == peri) }
+    /// An armed receive channel is passive. Each producer added here must also
+    /// provide an active-cadence term or a deadline in the owning SoC scheduler.
     pub fn in_channel_for(&self, peri: u32) -> Option<usize> { (0..GDMA_CHANNELS).find(|&i| self.inp[i].running && self.inp[i].peri_sel == peri) }
 }
 
@@ -96,7 +103,12 @@ impl Default for Gdma { fn default() -> Self { Self::new() } }
 pub struct DmaDesc { pub addr: u32, pub size: u32, pub length: u32, pub eof: bool, pub owner_dma: bool, pub buf: u32, pub next: u32 }
 pub fn read_desc(mem: &dyn Fn(u32) -> u32, addr: u32) -> DmaDesc {
     let dw0 = mem(addr);
-    DmaDesc { addr, size: dw0 & 0xfff, length: (dw0 >> 12) & 0xfff, eof: dw0 & (1 << 30) != 0, owner_dma: dw0 & (1 << 31) != 0, buf: mem(addr + 4), next: mem(addr + 8) }
+    DmaDesc::decode(addr, dw0, mem(addr + 4), mem(addr + 8))
+}
+impl DmaDesc {
+    fn decode(addr: u32, dw0: u32, buf: u32, next: u32) -> Self {
+    Self { addr, size: dw0 & 0xfff, length: (dw0 >> 12) & 0xfff, eof: dw0 & (1 << 30) != 0, owner_dma: dw0 & (1 << 31) != 0, buf, next }
+    }
 }
 impl Device for Gdma {
     fn read(&mut self, off: u32) -> u32 { Gdma::read(self, off) }

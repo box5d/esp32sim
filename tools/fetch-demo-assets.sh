@@ -1,11 +1,13 @@
 #!/bin/sh
 # Everything the page's demos need that is not committed, fetched into web/ exactly as the Pages
 # workflow does (it runs this script):
-#   - the ESP32-S3, C3 and C6 mask ROM ELFs (Apache-2.0, espressif/esp-rom-elfs, latest release)
-#     into web/wasm/fw/ — every demo boots from the ROM;
+#   - the classic ESP32, ESP32-S3, C3 and C6 mask ROM ELFs (Apache-2.0, espressif/esp-rom-elfs, pinned by release and
+#     SHA-256; tools/fetch-rom-elfs.sh) into web/wasm/fw/ — every demo boots from the ROM;
 #   - xterm.js for the Terminal tab (MIT, pinned; tools/fetch-web-vendor.sh);
 #   - the Linux-on-esp32-S3 flash image (GPL-3.0, svermigo/Linux-on-esp32-S3, release 0.7, pinned by
-#     commit and SHA-256) for the linux demos; 16 MB, skipped with --no-linux.
+#     commit and SHA-256) for the linux demos; 16 MB, skipped with --no-linux;
+#   - the official MicroPython ESP32_GENERIC v1.29.0 image (MIT, micropython.org, pinned by SHA-256;
+#     tools/fetch-micropython.sh) for the T-Display demo.
 # The module itself comes from tools/wasm-build.sh.
 #   tools/fetch-demo-assets.sh [--no-linux]
 set -e
@@ -28,19 +30,11 @@ sha256_ok() {  # FILE HASH; -c without GNU-only --status, so macOS sha256sum and
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-url=$(curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 https://api.github.com/repos/espressif/esp-rom-elfs/releases/latest \
-  | python3 -c 'import json,sys; print(next(a["browser_download_url"] for a in json.load(sys.stdin)["assets"] if a["name"].endswith(".tar.gz")))')
-get "$url" "$tmp/rom.tar.gz"
-mkdir "$tmp/rom"
-tar -xzf "$tmp/rom.tar.gz" -C "$tmp/rom"
-for rom in esp32s3_rev0_rom.elf esp32c3_rev3_rom.elf esp32c6_rev0_rom.elf; do
-  f=$(find "$tmp/rom" -name "$rom" | head -n 1)
-  [ -n "$f" ] || { echo "$rom is not in $url" >&2; exit 1; }
-  cp "$f" "$FW/$rom"
-done
-echo "mask ROMs from $url"
+tools/fetch-rom-elfs.sh "$FW"
 
 tools/fetch-web-vendor.sh
+
+tools/fetch-micropython.sh "$FW"
 
 if [ "$linux" = 1 ]; then
   if [ -f "$FW/linux-esp32s3-native-full.bin" ] && sha256_ok "$FW/linux-esp32s3-native-full.bin" "$LINUX_SHA"; then

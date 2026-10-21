@@ -1,0 +1,86 @@
+{
+  "base": "2b992d2d2fcf19a83c250a2ba8f9f1d708f991cc",
+  "toolchain": "1.99.0",
+  "checks": [
+    {
+      "check": "assets",
+      "command": "bash tools/fetch-demo-assets.sh --no-linux",
+      "exit": 0
+    },
+    {
+      "check": "clippy",
+      "command": "cargo +1.99.0 clippy --workspace --all-targets -- -D warnings",
+      "exit": 0
+    },
+    {
+      "check": "clippy-wasm",
+      "command": "cargo +1.99.0 clippy --release --target wasm32-unknown-unknown -p esp32sim-wasm --features jit-tests -- -D warnings",
+      "exit": 0
+    },
+    {
+      "check": "workspace",
+      "command": "cargo +1.99.0 test --release --workspace -- --include-ignored --skip external_",
+      "exit": 0,
+      "passed": 795,
+      "failed": 0,
+      "ignored": 0,
+      "HOME": "empty",
+      "emulator_environment": [
+        "ESP32SIM_ROM_DIR=web/wasm/fw"
+      ]
+    },
+    {
+      "check": "plain",
+      "command": "cargo +1.99.0 test --release --workspace",
+      "exit": 0,
+      "passed": 769,
+      "failed": 0,
+      "ignored": 44,
+      "HOME": "empty",
+      "emulator_environment": []
+    },
+    {
+      "check": "wasm",
+      "command": "RUSTUP_TOOLCHAIN=1.99.0 bash tools/wasm-build.sh && node tools/wasm-test.mjs hello c3-hello c6-hello c6-energy-scan c6-contiki c6-contiki-net c6-rpl-net panel",
+      "exit": 0
+    },
+    {
+      "check": "privacy",
+      "command": "node tools/check-evidence-privacy.mjs",
+      "exit": 0
+    },
+    {
+      "check": "bins",
+      "command": "cargo +1.99.0 build --release --bins",
+      "exit": 0
+    },
+    {
+      "check": "mutations",
+      "command": "python3 docs/evidence/i2c-addressing-timing/mutate.py",
+      "exit": 0
+    },
+    {
+      "check": "wasm-sections",
+      "command": "node tools/check-wasm-sections.mjs web/wasm/esp32sim.wasm",
+      "exit": 0
+    },
+    {
+      "check": "timing-abi",
+      "command": "node wasm/tests/timing-api.mjs web/wasm/esp32sim.wasm",
+      "exit": 0
+    },
+    {
+      "check": "ble-abi",
+      "command": "node wasm/tests/ble-api.mjs web/wasm/esp32sim.wasm web/wasm/fw/public web/wasm/fw/esp32c3_rev3_rom.elf",
+      "exit": 0
+    }
+  ],
+  "mutations": {
+    "total": 44,
+    "killed": 44
+  },
+  "cpu_comparison": "Historical tables only; no new CPU benchmark.",
+  "jit_differential": "Not required: no JIT code changed",
+  "production_wasm_sha256": "ec9539942447cb86c353b2b3f316e3a75439abd8806a360bf8f0b738b6bc6f7e",
+  "rebase_results": "rebase-2b.json"
+}

@@ -6,7 +6,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
 /// One connected browser: frames are queued and written by a dedicated thread so a slow or
-/// frozen tab can never block the emulator. When the queue is full, old frames are dropped.
+/// frozen tab can never block the emulator. When the queue is full, new frames are dropped.
 pub struct Client { tx: std::sync::mpsc::SyncSender<Vec<u8>>, pub peer: Option<std::net::SocketAddr> }
 impl Client {
     fn send(&self, f: Vec<u8>) -> bool {
@@ -26,6 +26,8 @@ pub struct Shared {
     pub incoming: VecDeque<String>,
     pub incoming_bin: VecDeque<Vec<u8>>,
     pub web_dir: String,
+    /// exact origins from `ESP_EMU_WEB_ORIGIN` that may connect beyond this listener's own pages
+    pub trusted_origins: Vec<String>,
     pub hello: Vec<Vec<u8>>,     // frames sent to every new client (board description etc.)
 }
 
@@ -66,7 +68,7 @@ fn b64(d: &[u8]) -> String {
     o
 }
 
-fn frame(opcode: u8, data: &[u8]) -> Vec<u8> {
+pub(crate) fn frame(opcode: u8, data: &[u8]) -> Vec<u8> {
     let mut f = vec![0x80 | opcode];
     let n = data.len();
     if n < 126 { f.push(n as u8); } else if n < 65536 { f.push(126); f.extend_from_slice(&(n as u16).to_be_bytes()); } else { f.push(127); f.extend_from_slice(&(n as u64).to_be_bytes()); }
@@ -76,12 +78,13 @@ fn frame(opcode: u8, data: &[u8]) -> Vec<u8> {
 
 impl WebServer {
     pub fn start(port: u16, web_dir: String) -> std::io::Result<WebServer> {
-        // Loopback remains the safe default. Board launchers that intentionally
-        // serve a UI to another device can opt into a LAN address.
-        let bind_addr = std::env::var("ESP_EMU_WEB_BIND")
-            .unwrap_or_else(|_| "127.0.0.1".to_string());
+        // Loopback remains the safe default. Board launchers that intentionally serve a UI to
+        // another device can opt into a LAN address.
+        let bind_addr = std::env::var("ESP_EMU_WEB_BIND").unwrap_or_else(|_| "127.0.0.1".to_string());
         let listener = TcpListener::bind((bind_addr.as_str(), port))?;
-        let shared = Arc::new(Mutex::new(Shared { queue: false, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir, hello: Vec::new() }));
+        let trusted = trusted_origins();
+        let port = listener.local_addr()?.port();
+        let shared = Arc::new(Mutex::new(Shared { queue: false, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir, trusted_origins: trusted, hello: Vec::new() }));
         let s2 = shared.clone();
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
@@ -94,22 +97,27 @@ impl WebServer {
     /// A server with no sockets: everything sent is queued for whoever drains `take_outbox`
     /// (the wasm glue), and input arrives through `push_incoming*`. Same protocol, no transport.
     pub fn queued() -> WebServer {
-        WebServer { shared: Arc::new(Mutex::new(Shared { queue: true, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir: String::new(), hello: Vec::new() })), port: 0 }
+        WebServer { shared: Arc::new(Mutex::new(Shared { queue: true, outbox: VecDeque::new(), clients: Vec::new(), incoming: VecDeque::new(), incoming_bin: VecDeque::new(), web_dir: String::new(), trusted_origins: Vec::new(), hello: Vec::new() })), port: 0 }
     }
     pub fn send_text(&self, s: &str) { self.emit(1, s.as_bytes()); }
     pub fn send_binary(&self, d: &[u8]) { self.emit(2, d); }
     fn emit(&self, kind: u8, d: &[u8]) {
-        let queue = self.shared.lock().unwrap().queue;
-        if queue { self.shared.lock().unwrap().outbox.push_back((kind, d.to_vec())); } else { self.broadcast(frame(kind, d)); }
-    }
-    fn broadcast(&self, f: Vec<u8>) {
         let mut sh = self.shared.lock().unwrap();
-        sh.clients.retain(|c| c.send(f.clone()));
+        if sh.queue {
+            sh.outbox.push_back((kind, d.to_vec()));
+        } else {
+            let f = frame(kind, d);
+            sh.clients.retain(|c| c.send(f.clone()));
+        }
     }
     /// Queue mode: take everything sent since the last call, as (1 = text, 2 = binary) messages.
     pub fn take_outbox(&self) -> Vec<(u8, Vec<u8>)> { self.shared.lock().unwrap().outbox.drain(..).collect() }
     pub fn push_incoming(&self, s: String) { self.shared.lock().unwrap().incoming.push_back(s); }
-    pub fn push_incoming_bin(&self, d: Vec<u8>) { self.shared.lock().unwrap().incoming_bin.push_back(d); }
+    pub fn push_incoming_bin(&self, d: Vec<u8>) {
+        let mut sh = self.shared.lock().unwrap();
+        if d.first() == Some(&3) { sh.incoming_bin.retain(|old| old.first() != Some(&3)); }
+        if sh.incoming_bin.len() < 4 { sh.incoming_bin.push_back(d); }
+    }
     pub fn set_hello(&self, frames: Vec<Vec<u8>>) { self.shared.lock().unwrap().hello = frames; }
     /// Only socket clients replay a late-join snapshot; queued consumers use the live outbox.
     pub fn needs_hello(&self) -> bool { !self.shared.lock().unwrap().queue }
@@ -121,9 +129,62 @@ impl WebServer {
 /// The value of HTTP header `name` in a request head. Header names are case-insensitive
 /// (RFC 9110): browsers send `Sec-WebSocket-Key`, while Node's WebSocket and others lowercase it.
 fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
-    head.lines().skip(1).find_map(|l| {
+    head.lines().skip(1).take_while(|l| !l.is_empty()).find_map(|l| {
         let (n, v) = l.split_once(':')?;
         n.trim().eq_ignore_ascii_case(name).then(|| v.trim())
+    })
+}
+
+/// Browsers always send Origin; only pages served by this loopback listener may
+/// control it, including a forwarded loopback Host port. Native tools without Origin remain trusted local clients.
+/// The CoreS3 Studio serves itself from another local port (the console's launcher): exact origins
+/// listed in `trusted` (from `ESP_EMU_WEB_ORIGIN`) are equally accepted, never a prefix or wildcard.
+fn local_origin(head: &str, port: u16, trusted: &[String]) -> bool {
+    let Some(origin) = header(head, "Origin") else { return true; };
+    if trusted.iter().any(|t| t == origin) { return true; }
+    if let Some(host) = header(head, "Host") {
+        let (name, port_text) = match host.rsplit_once(':') {
+            Some((name, port)) => (name, Some(port)), None => (host, None),
+        };
+        let loopback = matches!(name, "localhost" | "127.0.0.1" | "[::1]");
+        let valid_port = port_text.is_none_or(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().is_ok());
+        if loopback && valid_port && origin == format!("http://{host}") { return true; }
+    }
+    ["127.0.0.1", "localhost"].iter().any(|host| {
+        origin == format!("http://{host}:{port}") || (port == 80 && origin == format!("http://{host}"))
+    })
+}
+
+fn static_file(web_dir: &str, path: &str) -> Option<Vec<u8>> {
+    let root = std::fs::canonicalize(web_dir).ok()?;
+    let relative = std::path::Path::new(path.strip_prefix('/')?);
+    if !relative.components().all(|c| matches!(c, std::path::Component::Normal(_))) { return None; }
+    let file = root.join(relative).canonicalize().ok()?;
+    if !file.starts_with(&root) { return None; }
+    std::fs::read(file).ok()
+}
+
+fn content_type(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "application/javascript",
+        Some("css") => "text/css", Some("json") => "application/json",
+        Some("wasm") => "application/wasm", Some("png") => "image/png",
+        Some("webp") => "image/webp", Some("svg") => "image/svg+xml",
+        Some("txt") => "text/plain; charset=utf-8", _ => "application/octet-stream",
+    }
+}
+
+fn http_response(stream: &mut TcpStream, status: &str, ctype: &str, body: &[u8]) -> std::io::Result<()> {
+    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n", body.len())?;
+    stream.write_all(body)
+}
+
+/// Operator-set serialization for the CoreS3 Studio's own listener: exact `http://host:port`
+/// origin strings, comma separated. Empty, malformed or absent values trust nobody extra.
+fn trusted_origins() -> Vec<String> {
+    std::env::var("ESP_EMU_WEB_ORIGIN").map_or_else(|_| Vec::new(), |list| {
+        list.split(',').map(|o| o.trim().to_string()).filter(|o| !o.is_empty()).collect()
     })
 }
 
@@ -134,51 +195,62 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
         match stream.read(&mut buf) { Ok(0) | Err(_) => return, Ok(n) => req.extend_from_slice(&buf[..n]) }
         if req.len() > 65536 { return; }
     }
-    let text = String::from_utf8_lossy(&req).to_string();
+    let head_end = req.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let text = String::from_utf8_lossy(&req[..head_end]);
     let key = header(&text, "Sec-WebSocket-Key").map(str::to_string);
     let Some(key) = key else {
         // plain HTTP: serve a file
         let path = text.split_whitespace().nth(1).unwrap_or("/").split('?').next().unwrap_or("/");
         let path = if path == "/" { "/run.html" } else { path };
         let web_dir = shared.lock().unwrap().web_dir.clone();
-        let safe = !path.contains("..");
-        let body = if safe { std::fs::read(format!("{}{}", web_dir, path)).ok() } else { None };
-        let ctype = match path.rsplit('.').next() { Some("js") | Some("mjs") => "application/javascript", Some("css") => "text/css", Some("json") => "application/json", Some("wasm") => "application/wasm", Some("png") => "image/png", Some("webp") => "image/webp", Some("svg") => "image/svg+xml", Some("txt") => "text/plain; charset=utf-8", _ => "text/html; charset=utf-8" };
+        let body = static_file(&web_dir, path);
+        let ctype = content_type(path);
         let (status, body, ctype) = match body { Some(b) => ("200 OK", b, ctype), None => ("404 Not Found", b"not found".to_vec(), "text/plain") };
-        let _ = stream.write_all(format!("HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", status, ctype, body.len()).as_bytes());
-        let _ = stream.write_all(&body);
+        let _ = http_response(&mut stream, status, ctype, &body);
         return;
     };
+    let trusted = shared.lock().unwrap().trusted_origins.clone();
+    if !stream.local_addr().is_ok_and(|addr| local_origin(&text, addr.port(), &trusted)) {
+        let _ = http_response(&mut stream, "403 Forbidden", "text/plain", b"foreign Origin denied");
+        return;
+    }
+    let Ok(mut out) = stream.try_clone() else { return; };
     let accept = b64(&sha1(format!("{}258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key).as_bytes()));
-    let _ = stream.write_all(format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n", accept).as_bytes());
+    if write!(stream, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n").is_err() { return; }
     let _ = stream.set_nodelay(true);
-    {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(256);
+    let hello = {
         let mut sh = shared.lock().unwrap();
         let hello = sh.hello.clone();
-        for f in hello { let _ = stream.write_all(&f); }
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(256);
-        let mut out = stream.try_clone().unwrap();
-        std::thread::spawn(move || { while let Ok(f) = rx.recv() { if out.write_all(&f).is_err() { break; } } });
-        sh.clients.push(Client { tx, peer: stream.peer_addr().ok() });
-    }
+        sh.clients.push(Client { tx: tx.clone(), peer: stream.peer_addr().ok() });
+        hello
+    };
+    // Register and snapshot atomically, then write without the emulator's mutex.
+    // Live frames can queue immediately but always follow the complete snapshot.
+    std::thread::spawn(move || {
+        for f in hello.into_iter().chain(rx) { if out.write_all(&f).is_err() { break; } }
+    });
     // read loop
-    let mut read_exact = |n: usize| -> Option<Vec<u8>> { let mut v = vec![0u8; n]; let mut got = 0; while got < n { match stream.read(&mut v[got..]) { Ok(0) | Err(_) => return None, Ok(k) => got += k } } Some(v) };
+    // A TCP read may have included the first frame after the HTTP head.
+    let mut input = req[head_end..].chain(&mut stream);
+    let mut read_exact = |n: usize| -> Option<Vec<u8>> { let mut v = vec![0u8; n]; input.read_exact(&mut v).ok()?; Some(v) };
+    // A phone camera picture (77 KB of RGBA) arrives split across frames, possibly with a control
+    // frame between any two of them. Partial images must never replace the last complete one.
     let mut fragmented: Option<(u8, Vec<u8>)> = None;
     while let Some(h) = read_exact(2) {
         let fin = h[0] & 0x80 != 0;
         let op = h[0] & 0xf; let masked = h[1] & 0x80 != 0; let mut len = (h[1] & 0x7f) as u64;
+        if h[0] & 0x70 != 0 || (op >= 8 && (!fin || len > 125)) { break; }
         if len == 126 { let Some(e) = read_exact(2) else { break }; len = u16::from_be_bytes([e[0], e[1]]) as u64; }
         else if len == 127 { let Some(e) = read_exact(8) else { break }; len = u64::from_be_bytes(e.try_into().unwrap()); }
         let mask = if masked { let Some(m) = read_exact(4) else { break }; m } else { vec![0; 4] };
         if len > 8 << 20 { break; }
         let Some(mut data) = read_exact(len as usize) else { break };
         if masked { for (i, b) in data.iter_mut().enumerate() { *b ^= mask[i & 3]; } }
-        // Browsers may split a 160x120 RGBA camera message across multiple frames.
-        // Publish only complete messages; partial images must never replace a queued image.
-        if h[0] & 0x70 != 0 || (op >= 8 && (!fin || len > 125)) { break; }
         let (op, data) = match op {
             8 => break,
-            9 | 10 => continue,
+            9 => { if tx.send(frame(10, &data)).is_err() { break; } continue; }
+            10 => continue,
             1 | 2 => {
                 if fragmented.is_some() { break; }
                 if !fin { fragmented = Some((op, data)); continue; }
@@ -197,12 +269,9 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
             1 => { shared.lock().unwrap().incoming.push_back(String::from_utf8_lossy(&data).to_string()); }
             2 => {
                 let mut sh = shared.lock().unwrap();
-                if !data.is_empty() && data[0] == 3 {
-                    sh.incoming_bin.retain(|b| b.is_empty() || b[0] != 3);
-                    sh.incoming_bin.push_back(data);
-                } else if sh.incoming_bin.len() < 4 {
-                    sh.incoming_bin.push_back(data);
-                }
+                // the newest camera picture wins: drop any earlier one the guest has not applied yet
+                if data.first() == Some(&3) { sh.incoming_bin.retain(|b| b.first() != Some(&3)); sh.incoming_bin.push_back(data); }
+                else if sh.incoming_bin.len() < 4 { sh.incoming_bin.push_back(data); }
             }
             _ => {}
         }
@@ -214,27 +283,7 @@ fn handle_client(mut stream: TcpStream, shared: Arc<Mutex<Shared>>) {
 
 /// Tiny JSON helpers for the few message shapes the UI sends.
 pub fn json_str(msg: &str, key: &str) -> Option<String> {
-    let k = format!("\"{}\"", key);
-    let p = msg.find(&k)? + k.len();
-    let rest = msg[p..].trim_start().strip_prefix(':')?.trim_start();
-    if let Some(r) = rest.strip_prefix('"') {
-        let mut out = String::new(); let mut it = r.chars();
-        while let Some(c) = it.next() {
-            match c {
-                '"' => break,
-                '\\' => match it.next() {
-                    Some('n') => out.push('\n'), Some('t') => out.push('\t'), Some('r') => out.push('\r'), Some('b') => out.push('\u{8}'), Some('f') => out.push('\u{c}'),
-                    Some('u') => { let h: String = it.by_ref().take(4).collect(); if let Some(ch) = u32::from_str_radix(&h, 16).ok().and_then(char::from_u32) { out.push(ch); } }
-                    Some(x) => out.push(x), None => break,
-                },
-                x => out.push(x),
-            }
-        }
-        Some(out)
-    } else {
-        let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '.')).unwrap_or(rest.len());
-        Some(rest[..end].to_string())
-    }
+    crate::json::parse_json(msg).ok()?.get(key)?.scalar_text()
 }
 pub fn json_escape(s: &str) -> String {
     let mut o = String::with_capacity(s.len());
@@ -243,75 +292,4 @@ pub fn json_escape(s: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fragmented_phone_camera_message_is_reassembled() {
-        let server = WebServer::queued();
-        // Exercise the real handler without touching an existing emulator.
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let addr = listener.local_addr().unwrap();
-        let shared = server.shared.clone();
-        let handler = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            handle_client(stream, shared);
-        });
-        let mut client = TcpStream::connect(addr).unwrap();
-        client.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
-        client.write_all(b"GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n").unwrap();
-        let mut response = Vec::new();
-        while !response.ends_with(b"\r\n\r\n") {
-            let mut byte = [0];
-            client.read_exact(&mut byte).unwrap();
-            response.push(byte[0]);
-        }
-        let mut image = vec![0u8; 5 + 160 * 120 * 4];
-        image[..5].copy_from_slice(&[3, 160, 0, 120, 0]);
-        image[5..].fill(0xa5);
-        let masked = |op: u8, fin: bool, bytes: &[u8]| {
-            let mut packet = frame(op, bytes);
-            if !fin { packet[0] &= 0x7f; }
-            let header = match packet[1] { 126 => 4, 127 => 10, _ => 2 };
-            packet[1] |= 0x80;
-            packet.splice(header..header, [0u8; 4]);
-            packet
-        };
-        let mut previous = image.clone();
-        previous[5..].fill(0x5a);
-        client.write_all(&masked(2, true, &previous)).unwrap();
-        client.write_all(&masked(2, false, &image[..32768])).unwrap();
-        client.write_all(&masked(9, true, b"ping between fragments")).unwrap();
-        client.write_all(&masked(0, false, &image[32768..65536])).unwrap();
-        client.write_all(&masked(0, true, &image[65536..])).unwrap();
-        client.write_all(&masked(1, false, b"hel")).unwrap();
-        client.write_all(&masked(0, true, b"lo")).unwrap();
-        // A later incomplete image must not evict the last complete one.
-        client.write_all(&masked(2, false, &previous[..32768])).unwrap();
-        // Closing after the data gives a deterministic synchronization point.
-        client.write_all(&masked(8, true, &[])).unwrap();
-        handler.join().unwrap();
-        let received = server.poll_incoming_bin();
-        assert_eq!(received.len(), 1);
-        assert_eq!(received[0].len(), image.len());
-        assert!(received[0] == image, "camera bytes must survive reassembly");
-        assert_eq!(server.poll_incoming(), vec!["hello"]);
-    }
-
-    #[test]
-    fn websocket_key_header_matches_any_case() {
-        for line in ["Sec-WebSocket-Key: abc==", "sec-websocket-key: abc==", "SEC-WEBSOCKET-KEY:abc==", "Sec-Websocket-Key :  abc==  "] {
-            let head = format!("GET /ws HTTP/1.1\r\nHost: x\r\n{line}\r\nUpgrade: websocket\r\n\r\n");
-            assert_eq!(header(&head, "Sec-WebSocket-Key"), Some("abc=="), "{line}");
-        }
-        assert_eq!(header("GET / HTTP/1.1\r\nHost: x\r\n\r\n", "Sec-WebSocket-Key"), None);
-        // the request line is not a header, even if its path contains a colon
-        assert_eq!(header("GET /Sec-WebSocket-Key: HTTP/1.1\r\n\r\n", "GET /Sec-WebSocket-Key"), None);
-    }
-
-    #[test]
-    fn websocket_accept_matches_rfc_6455_example() {
-        let key = "dGhlIHNhbXBsZSBub25jZQ==";
-        assert_eq!(b64(&sha1(format!("{}258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key).as_bytes())), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
-    }
-}
+mod tests;

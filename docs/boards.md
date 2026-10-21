@@ -7,8 +7,14 @@ the C6's boards live in `esp32c6::board`):
 pub trait BoardModel {
     fn name(&self) -> &'static str;
     fn gpio_changes(&mut self, changes: &[(u8, bool)]) {}      // output edges, in order
-    fn rmt_frame(&mut self, ch: usize, bits: &[bool]) {}       // a decoded RMT transmission
+    fn gpio_output_at(&mut self, cycle: VirtualCycle, changes: &[(u8, bool)], enabled: u64, output: u64) {}
+    fn uses_spi_pins(&self) -> bool                          // opt in to route decoding
+    fn spi_transfer_pins(&mut self, host: u8, pins: SpiPins, tx: &[u8], rx_len: usize) -> Vec<u8>
+    fn rmt_frame(&mut self, pin: u8, bits: &[bool]) {}       // a decoded RMT transmission
     fn spi_transfer(&mut self, host: u8, tx: &[u8], rx_len: usize) -> Vec<u8>
+    fn uses_uart_pins(&self) -> bool                         // opt in to UART routes and polling
+    fn uart_tx(&mut self, cycle: VirtualCycle, route: UartRoute, byte: u8) {}
+    fn uart_rx(&mut self, cycle: VirtualCycle) -> Vec<UartInput>
     fn i2c_devices(&mut self) -> Vec<(u8, u8, Box<dyn I2cDevice>)> // (bus, address, device)
     fn display(&self) -> Option<(u32, u32, Vec<u16>, u64)>    // for the UI/PNG: w, h, RGB565, change counter
     fn leds(&self) -> Option<(&[[u8; 3]], u64)>               // LED ring/strip colours, change counter
@@ -16,6 +22,7 @@ pub trait BoardModel {
     fn touch_at(&mut self, _cycle: VirtualCycle, x: u16, y: u16, down: bool) {
         self.touch(x, y, down);                                // default for untimed boards
     }
+    fn uses_gpio_edges(&self) -> bool                         // false for boards without timed GPIO input
     fn next_deadline(&self) -> Option<VirtualCycle>           // next autonomous board transition
     fn advance_to(&mut self, cycle: VirtualCycle)                    // advance through due transitions
     fn take_edges(&mut self) -> Vec<BoardEdge>                // timestamped GPIO input edges
@@ -28,6 +35,16 @@ pub trait BoardModel {
     fn camera_preview(&self, w: u32, h: u32) -> Option<Vec<u8>>       // RGB for the UI
 }
 ```
+
+`gpio_output_at` includes output-enable changes and emulated bus cycles. Its default calls
+`gpio_changes` for level changes. `uses_spi_pins` enables `spi_transfer_pins`, whose `SpiPins`
+contains physical SCLK/MOSI/CS masks and a MISO pin. `I2cDevice::pins` optionally binds
+a device to (SDA, SCL); fixed devices keep their controller-only behavior.
+`esp_soc::pins::ChipPins` decodes GPIO matrix and IO_MUX routes.
+
+After assigning or replacing `bus.board`, call `bus.attach_board_devices()` to
+attach devices and refresh cached board capabilities. `uses_gpio_edges` defaults
+to true; `NoBoard` returns false so C3 skips its deadline and edge callbacks.
 
 The SoC model produces the events; the board interprets them. `make_board(name)` maps the
 `--board` argument to an implementation.
@@ -98,6 +115,39 @@ the SoC at its next existing bus tick.
 | 802.15.4 radio | the C6's MAC (`esp32c6::periph::Ieee802154`) | energy detect answered with synthetic per-channel levels |
 
 The energy-scan firmware and the run recipe: `examples/waveshare-c6-lcd147/`, [esp32c6.md](esp32c6.md).
+
+## `ttgo-tdisplay` — LilyGO TTGO T-Display (classic ESP32)
+
+| Device | Bus | Model |
+| --- | --- | --- |
+| ST7789V 135×240 panel | VSPI/SPI3 through the GPIO matrix (SCLK 18, MOSI 19, no MISO), CS 5, D/C 16, RST 23 | `DcsPanel::st7789()`: 240×320 GRAM; bytes of transactions routed to GPIO 18/19 while CS is low; the glass shows RAM columns 52..186 and rows 40..279 as a portrait frame, red/blue exchanged unless MADCTL BGR |
+| Backlight | GPIO 4, active high | level tracked, in the report |
+| Buttons | GPIO 35 (right, input only) and GPIO 0 (left, BOOT), active low | `press right 150`, `press boot 150` |
+| Battery divider | GPIO 34 (ADC1 channel 6), enable on GPIO 14 | the classic ADC's script inputs; the enable level is in the report |
+| I2C header | SDA 21 / SCL 22 | nothing attached |
+
+Selected with `--chip esp32 --board ttgo-tdisplay` (alias `tdisplay`); [esp32.md](esp32.md#the-board---board-ttgo-tdisplay).
+
+## `m5cores3` — M5Stack CoreS3 (also matches `cores3`, `m5stack-cores3`)
+
+| Device | Bus | Model |
+| --- | --- | --- |
+| ILI9342C 320×240 IPS panel | GP-SPI2 (SCLK 36, MOSI 37, D/C 35, CS 3) | `DcsPanel`: RGB565 frame memory; the DVP camera shares the LCD_CAM block |
+| FT6336U touch @0x38 | I2C0 (SDA 12, SCL 11, INT 21) | identity/config/point reports; UI pointer events are latched until the driver reads them |
+| AXP2101 PMU @0x34 | I2C0 | register stub (chip id 0x4a, power status/DCDC); power-down sequencing lives outside this model |
+| AW9523B IO expander @0x58 | I2C0 | P1 drives the LCD reset, the backlight and the bus power |
+| BMI270 IMU @0x69 | I2C0 | accelerometer/gyro registers; `set_imu_motion` scripts the poses, `imu_motion(u32)` reports the mode (see `tests/bmi270.rs` and the machine tests) |
+| BM8563 RTC @0x51 | I2C0 | register stub; also mirrored at a second address |
+| GC0308 camera @0x21 | I2C0 config, LCD_CAM DVP data | RGB565 or YUYV frames through the upstream GDMA camera pipeline (`board.camera_frame()`); host type-3 pictures feed the same path |
+| ES7210 @0x40 / AW88298 @0x36 | I2C0 + I2S | codec registers; audio captured from the I2S port |
+| LTR553 @0x23, AK09918 @0x0c, BMM150 @0x10 | I2C0 | identity-compatible register stubs; the light/proximity and magnetometer behaviour lives outside this model |
+
+The full peripheral set is mirrored on both I2C controllers (0 and 1) so a firmware's
+either `Wire` instance finds every chip.
+
+Needs `--flash-mb 16 --psram-mb 8`. A launcher that also binds the LAN and allows the
+CoreS3 Studio console origin lives beside the repo (`../run_m5cores3.sh` from the repo
+root). The sync and verification record: [cores3-upstream-sync.md](cores3-upstream-sync.md).
 
 ## `none` — bare module
 

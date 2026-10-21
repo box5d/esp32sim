@@ -9,7 +9,13 @@ use crate::regram::RegRam;
 const RX_FIFO_SIZE: usize = 128;
 const INT_RXFIFO_FULL: u32 = 1 << 0;
 const INT_TXFIFO_EMPTY: u32 = 1 << 1;
+pub const INT_FRM_ERR: u32 = 1 << 3;
 const INT_RXFIFO_OVF: u32 = 1 << 4;
+/// RXFIFO_TOUT (bit 8 on the S3/C3/C6 maps): silicon raises it once the line has been idle for
+/// rx_tout_thrhd symbols with bytes still in the FIFO. The IDF / Arduino drivers rely on it to
+/// pick up short messages below rxfifo_full_thrhd (a one-character command). Modelled as a level
+/// with no idle delay: raised while the FIFO holds bytes, so the driver's ISR drains them.
+const INT_RXFIFO_TOUT: u32 = 1 << 8;
 const INT_TX_DONE: u32 = 1 << 14;
 /// TXFIFO_EMPTY and TX_DONE: always true here, so INT_CLR cannot take them down.
 const INT_ALWAYS: u32 = INT_TXFIFO_EMPTY | INT_TX_DONE;
@@ -46,8 +52,37 @@ impl Uart {
     /// driver that wants every byte sets 1. RXFIFO_FULL is a level here: it stays raised while the count is at or
     /// over the threshold, so a driver that clears it before draining is woken again.
     fn rx_full_threshold(&self) -> usize { ((self.ram.read(0x24) & self.layout.thrhd_mask) as usize).max(1) }
-    fn refresh_rx_full(&mut self) { if self.rx.len() >= self.rx_full_threshold() { self.int_raw |= INT_RXFIFO_FULL; } }
+    fn refresh_rx_full(&mut self) {
+        if self.rx.len() >= self.rx_full_threshold() { self.int_raw |= INT_RXFIFO_FULL; }
+        if !self.rx.is_empty() { self.int_raw |= INT_RXFIFO_TOUT; }
+    }
+    /// Configured baud, including the fractional UART and source-clock dividers.
+    /// `clock` is CLK_CONF on S3/C3 or PCR_UARTn_SCLK_CONF on C6.
+    pub fn baud(&self, clock: u32, rc_hz: u32) -> Option<u32> {
+        let source = match (clock >> 20) & 3 { 1 => 80_000_000u64, 2 => rc_hz as u64, 3 => 40_000_000, _ => return None };
+        let div = self.ram.read(0x14);
+        let uart_div = (div & 0xfff) as u64 * 16 + ((div >> 20) & 15) as u64;
+        if uart_div == 0 { return None; }
+        let denominator = (clock & 63) as u64;
+        let numerator = ((clock >> 6) & 63) as u64;
+        let integer = ((clock >> 12) & 255) as u64 + 1;
+        let (n, d) = if denominator == 0 { (integer, 1) } else { (integer * denominator + numerator, denominator) };
+        Some((source * 16 * d / (n * uart_div)) as u32)
+    }
+    pub fn clock_config(&self) -> u32 { self.ram.read(0x78) }
     pub fn rx_pending(&self) -> usize { self.rx.len() }
+    /// Classic ESP32 has a 20-bit divider and selects APB or the 1 MHz reference tick.
+    /// ESP-IDF v5.5.4: components/soc/esp32/register/soc/uart_reg.h
+    /// (UART_CLKDIV, UART_CLKDIV_FRAG, UART_TICK_REF_ALWAYS_ON) and
+    /// components/soc/esp32/include/soc/soc.h (APB_CLK_FREQ, REF_CLK_FREQ).
+    /// These fields match v4.4.8, where uart_reg.h is under include/soc/.
+    /// Uses the nominal 80 MHz APB clock.
+    pub fn classic_baud(&self) -> Option<u32> {
+        let div = self.ram.read(0x14);
+        let divisor = u64::from(div & 0xfffff) * 16 + u64::from((div >> 20) & 15);
+        let source = if self.ram.read(0x20) & (1 << 27) != 0 { 80_000_000u64 } else { 1_000_000 };
+        (divisor != 0).then(|| (source * 16 / divisor) as u32)
+    }
     pub fn read(&mut self, off: u32) -> u32 {
         match off {
             0x0 => self.rx.pop_front().map(|b| b as u32).unwrap_or(0),
@@ -80,6 +115,22 @@ impl Device for Uart {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn classic_baud_uses_its_divider_and_clock_source() {
+        let mut u = Uart::new(UartLayout::S3);
+        u.write(0x14, 0);
+        assert_eq!(u.classic_baud(), None);
+        u.write(0x20, 1 << 27);
+        u.write(0x14, 694);
+        assert_eq!(u.classic_baud(), Some(115273));
+        u.write(0x20, 0);
+        u.write(0x14, (2 << 20) | 104);
+        assert_eq!(u.classic_baud(), Some(9603));
+        u.write(0x20, 1 << 27);
+        u.write(0x14, 1 << 16);
+        assert_eq!(u.classic_baud(), Some(1220));
+    }
+
     /// The Linux esp32_uart driver's receive path: threshold 1, RXFIFO_FULL enabled, count from
     /// STATUS, pop the FIFO, then INT_CLR — and the line must drop only once the FIFO is empty.
     #[test]
@@ -117,5 +168,18 @@ mod tests {
         assert_eq!(u.read(0x1c) & 0xff, 1);
         u.write(0x20, 1 << 22);
         assert_eq!(u.read(0x1c) & 0xff, 0);
+    }
+
+    /// A one-character command (below rxfifo_full_thrhd) still wakes the IDF / Arduino driver:
+    /// RXFIFO_TOUT is up while bytes wait, and drops once the FIFO is drained and cleared.
+    #[test]
+    fn short_message_raises_rx_timeout() {
+        let mut u = Uart::new(UartLayout::S3);
+        u.write(0x24, 120); u.write(0xc, INT_RXFIFO_TOUT);
+        u.host_input(b"?");
+        assert!(u.irq() && u.read(0x4) & INT_RXFIFO_FULL == 0);
+        let _ = u.read(0x0);                      // the driver drains the byte
+        u.write(0x10, INT_RXFIFO_TOUT);
+        assert!(!u.irq());
     }
 }

@@ -1,0 +1,23 @@
+--- main
+
++++ head
+
+@@ -91,4 +91,7 @@
+
+ mov	x1, x20
+ bl	<<esp32s3::bus::SocBus>::periph_write_inner>
++mov	w8, #0x1ac3
++ldrb	w8, [x19, x8]
++tbnz	w8, #0x1, <<esp32s3::bus::SocBus>::write32_access::<false>>
+ mov	x0, x19
+ bl	<<esp32s3::bus::SocBus>::refresh_tick_budget>
+@@ -179,4 +182,8 @@
+
+ add	sp, sp, #0x60
+ ret
++mov	x0, x19
++mov	x1, x20
++bl	<<esp32s3::bus::SocBus>::rmt_dma_write>
++b	<<esp32s3::bus::SocBus>::write32_access::<false>>
+ adrp x3
+ add	x3, x3, #PAGEOFF

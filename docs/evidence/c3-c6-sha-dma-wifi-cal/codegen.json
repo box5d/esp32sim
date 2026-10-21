@@ -1,0 +1,833 @@
+{
+  "target": "aarch64-apple-darwin",
+  "toolchain": "1.99.0",
+  "build": "cargo +1.99.0 build --release -p esp32sim --bins",
+  "base": "mikroverk/esp32sim@ff64902a",
+  "candidate": "source in this commit",
+  "normalization": "Instruction addresses, branch/call targets, adrp page offsets, nop/udf padding; ICF aliases matched by callee shape. Other immediates and offsets retained. Duplicate demangled names concatenated by comparator. An omitted zero displacement following adrp is normalized to PAGEOFF too.",
+  "layout": {
+    "Peripherals size": {
+      "main": 8624,
+      "fixed": 8624
+    },
+    "Peripherals.adc": {
+      "main": 728,
+      "fixed": 728
+    },
+    "Peripherals.uart": {
+      "main": 920,
+      "fixed": 920
+    },
+    "Peripherals.usb": {
+      "main": 1128,
+      "fixed": 1128
+    },
+    "Peripherals.systimer": {
+      "main": 8400,
+      "fixed": 8400
+    },
+    "Peripherals.timg": {
+      "main": 1304,
+      "fixed": 1304
+    },
+    "Peripherals.gpio": {
+      "main": 1560,
+      "fixed": 1560
+    },
+    "Peripherals.io_mux": {
+      "main": 3136,
+      "fixed": 3136
+    },
+    "Peripherals.i2c": {
+      "main": 0,
+      "fixed": 0
+    },
+    "Peripherals.efuse": {
+      "main": 3160,
+      "fixed": 3160
+    },
+    "Peripherals.spi0": {
+      "main": 3184,
+      "fixed": 3184
+    },
+    "Peripherals.spi1": {
+      "main": 3320,
+      "fixed": 3320
+    },
+    "Peripherals.sha": {
+      "main": 3456,
+      "fixed": 3456
+    },
+    "Peripherals.aes": {
+      "main": 3696,
+      "fixed": 3696
+    },
+    "Peripherals.rsa": {
+      "main": 3840,
+      "fixed": 3840
+    },
+    "Peripherals.rmt": {
+      "main": 3928,
+      "fixed": 3928
+    },
+    "Peripherals.gdma": {
+      "main": 5856,
+      "fixed": 5856
+    },
+    "Peripherals.spi2": {
+      "main": 6376,
+      "fixed": 6376
+    },
+    "Peripherals.radio": {
+      "main": 184,
+      "fixed": 184
+    },
+    "Peripherals.modem_bb": {
+      "main": 6544,
+      "fixed": 6544
+    },
+    "Peripherals.wifi_mac": {
+      "main": 6584,
+      "fixed": 6584
+    },
+    "Peripherals.intmtx": {
+      "main": 7208,
+      "fixed": 7208
+    },
+    "Peripherals.intc": {
+      "main": 7544,
+      "fixed": 7544
+    },
+    "Peripherals.cache": {
+      "main": 7728,
+      "fixed": 7728
+    },
+    "Peripherals.lpsys": {
+      "main": 7752,
+      "fixed": 7752
+    },
+    "Peripherals.pcr": {
+      "main": 7800,
+      "fixed": 7800
+    },
+    "Peripherals.ana_mst": {
+      "main": 7824,
+      "fixed": 7824
+    },
+    "Peripherals.assist_debug": {
+      "main": 7896,
+      "fixed": 7896
+    },
+    "Peripherals.rng": {
+      "main": 8544,
+      "fixed": 8544
+    },
+    "Peripherals.cpu_sub": {
+      "main": 7928,
+      "fixed": 7928
+    },
+    "Peripherals.misc": {
+      "main": 7952,
+      "fixed": 7952
+    },
+    "Peripherals.spi_exec": {
+      "main": 8616,
+      "fixed": 8616
+    },
+    "Peripherals.ledc": {
+      "main": 8120,
+      "fixed": 8120
+    },
+    "Peripherals.mcpwm": {
+      "main": 8264,
+      "fixed": 8264
+    },
+    "Peripherals.i2s0 (fixed: optional)": {
+      "main": 8536,
+      "fixed": 8536
+    },
+    "Peripherals.work_pending": {
+      "main": 8617,
+      "fixed": 8617
+    },
+    "SocBus size": {
+      "main": 10176,
+      "fixed": 10176
+    },
+    "SocBus.ble": {
+      "main": 8624,
+      "fixed": 8624
+    },
+    "SocBus.rom": {
+      "main": 8960,
+      "fixed": 8960
+    },
+    "SocBus.sram": {
+      "main": 8984,
+      "fixed": 8984
+    },
+    "SocBus.lp_sram": {
+      "main": 9008,
+      "fixed": 9008
+    },
+    "SocBus.flash": {
+      "main": 9032,
+      "fixed": 9032
+    },
+    "SocBus.mmu": {
+      "main": 9104,
+      "fixed": 9104
+    },
+    "SocBus.mmu_index": {
+      "main": 10160,
+      "fixed": 10160
+    },
+    "SocBus.mmu_power_ctrl": {
+      "main": 10164,
+      "fixed": 10164
+    },
+    "SocBus.periph": {
+      "main": 0,
+      "fixed": 0
+    },
+    "SocBus.board": {
+      "main": 9088,
+      "fixed": 9088
+    },
+    "SocBus.cycles": {
+      "main": 10128,
+      "fixed": 10128
+    },
+    "SocBus.last_fault": {
+      "main": 9080,
+      "fixed": 9080
+    },
+    "SocBus.irq_dirty": {
+      "main": 10169,
+      "fixed": 10169
+    },
+    "SocBus.gpio_events": {
+      "main": 9056,
+      "fixed": 9056
+    },
+    "SocBus.debug": {
+      "main": 10136,
+      "fixed": 10136
+    }
+  },
+  "hot_functions": [
+    {
+      "function": "<esp32c6::board::WaveshareC6Lcd147 as esp_soc::board::BoardModel>::next_deadline",
+      "main_instructions": 2,
+      "fixed_instructions": 2,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::fetch",
+      "main_instructions": 106,
+      "fixed_instructions": 106,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read16",
+      "main_instructions": 96,
+      "fixed_instructions": 96,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read32",
+      "main_instructions": 96,
+      "fixed_instructions": 96,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read8",
+      "main_instructions": 84,
+      "fixed_instructions": 84,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick",
+      "main_instructions": 2036,
+      "fixed_instructions": 2036,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write16",
+      "main_instructions": 49,
+      "fixed_instructions": 49,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write32",
+      "main_instructions": 48,
+      "fixed_instructions": 48,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write8",
+      "main_instructions": 47,
+      "fixed_instructions": 47,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+      "main_instructions": 290,
+      "fixed_instructions": 290,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::refresh_irq",
+      "main_instructions": 442,
+      "fixed_instructions": 449,
+      "fixed_matches_main": false
+    },
+    {
+      "function": "<esp32c6::bus::SocBus>::pending_work",
+      "main_instructions": 731,
+      "fixed_instructions": 731,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus>::periph_read",
+      "main_instructions": 225,
+      "fixed_instructions": 225,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp32c6::bus::SocBus>::periph_write",
+      "main_instructions": 1660,
+      "fixed_instructions": 1747,
+      "fixed_matches_main": false
+    },
+    {
+      "function": "<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::refresh_optional",
+      "main_instructions": 225,
+      "fixed_instructions": 259,
+      "fixed_matches_main": false
+    },
+    {
+      "function": "<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "main_instructions": 194,
+      "fixed_instructions": 227,
+      "fixed_matches_main": false
+    },
+    {
+      "function": "<esp32c6::periph::Peripherals>::read32",
+      "main_instructions": 679,
+      "fixed_instructions": 677,
+      "fixed_matches_main": false
+    },
+    {
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run",
+      "main_instructions": 4325,
+      "fixed_instructions": 4325,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run_unmodeled::<false>",
+      "main_instructions": 1053,
+      "fixed_instructions": 1053,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::step_core",
+      "main_instructions": 465,
+      "fixed_instructions": 465,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read16",
+      "main_instructions": 37,
+      "fixed_instructions": 37,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "main_instructions": 37,
+      "fixed_instructions": 37,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read8",
+      "main_instructions": 39,
+      "fixed_instructions": 39,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write16",
+      "main_instructions": 87,
+      "fixed_instructions": 87,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "main_instructions": 87,
+      "fixed_instructions": 87,
+      "fixed_matches_main": true
+    },
+    {
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write8",
+      "main_instructions": 79,
+      "fixed_instructions": 79,
+      "fixed_matches_main": true
+    }
+  ],
+  "limits": "Static comparison only; The maintainer subsequently closed the C6 idle-path check: ff64902a versus a175e357, 3.50 versus 3.51 s median user CPU (+0.3%), slower 3/7, identical instructions and console hash. Remaining SHA/ECC MMIO and interrupt-source costs are not instruction-identical to main ff64902a.",
+  "historical_parent_comparison": {
+    "target": "aarch64-apple-darwin",
+    "toolchain": "1.99.0",
+    "build": "cargo +1.99.0 build --release -p esp32sim --bins",
+    "base": "schematik-engineering/esp32sim@baf9845b",
+    "before": "schematik-engineering/esp32sim@3d9eee3c",
+    "candidate": "source in this commit",
+    "normalization": "Instruction addresses, branch/call targets, adrp page offsets, nop/udf padding; ICF aliases matched by callee shape. Other immediates and offsets retained. Duplicate demangled names concatenated by comparator.",
+    "layout": {
+      "Peripherals size": {
+        "parent": 8624,
+        "before": 8632,
+        "fixed": 8624
+      },
+      "Peripherals.adc": {
+        "parent": 728,
+        "before": 728,
+        "fixed": 728
+      },
+      "Peripherals.uart": {
+        "parent": 920,
+        "before": 920,
+        "fixed": 920
+      },
+      "Peripherals.usb": {
+        "parent": 1128,
+        "before": 1128,
+        "fixed": 1128
+      },
+      "Peripherals.systimer": {
+        "parent": 8400,
+        "before": 8400,
+        "fixed": 8400
+      },
+      "Peripherals.timg": {
+        "parent": 1304,
+        "before": 1304,
+        "fixed": 1304
+      },
+      "Peripherals.gpio": {
+        "parent": 1560,
+        "before": 1560,
+        "fixed": 1560
+      },
+      "Peripherals.io_mux": {
+        "parent": 3136,
+        "before": 3136,
+        "fixed": 3136
+      },
+      "Peripherals.i2c": {
+        "parent": 0,
+        "before": 0,
+        "fixed": 0
+      },
+      "Peripherals.efuse": {
+        "parent": 3160,
+        "before": 3160,
+        "fixed": 3160
+      },
+      "Peripherals.spi0": {
+        "parent": 3184,
+        "before": 3184,
+        "fixed": 3184
+      },
+      "Peripherals.spi1": {
+        "parent": 3320,
+        "before": 3320,
+        "fixed": 3320
+      },
+      "Peripherals.sha": {
+        "parent": 3456,
+        "before": 3456,
+        "fixed": 3456
+      },
+      "Peripherals.aes": {
+        "parent": 3696,
+        "before": 3696,
+        "fixed": 3696
+      },
+      "Peripherals.rsa": {
+        "parent": 3840,
+        "before": 3840,
+        "fixed": 3840
+      },
+      "Peripherals.rmt": {
+        "parent": 3928,
+        "before": 3928,
+        "fixed": 3928
+      },
+      "Peripherals.gdma": {
+        "parent": 5856,
+        "before": 5856,
+        "fixed": 5856
+      },
+      "Peripherals.spi2": {
+        "parent": 6376,
+        "before": 6376,
+        "fixed": 6376
+      },
+      "Peripherals.radio": {
+        "parent": 184,
+        "before": 184,
+        "fixed": 184
+      },
+      "Peripherals.modem_bb": {
+        "parent": 6544,
+        "before": 6544,
+        "fixed": 6544
+      },
+      "Peripherals.wifi_mac": {
+        "parent": 6584,
+        "before": 6584,
+        "fixed": 6584
+      },
+      "Peripherals.intmtx": {
+        "parent": 7208,
+        "before": 7208,
+        "fixed": 7208
+      },
+      "Peripherals.intc": {
+        "parent": 7544,
+        "before": 7544,
+        "fixed": 7544
+      },
+      "Peripherals.cache": {
+        "parent": 7728,
+        "before": 7728,
+        "fixed": 7728
+      },
+      "Peripherals.lpsys": {
+        "parent": 7752,
+        "before": 7752,
+        "fixed": 7752
+      },
+      "Peripherals.pcr": {
+        "parent": 7800,
+        "before": 7800,
+        "fixed": 7800
+      },
+      "Peripherals.ana_mst": {
+        "parent": 7824,
+        "before": 7824,
+        "fixed": 7824
+      },
+      "Peripherals.assist_debug": {
+        "parent": 7896,
+        "before": 7896,
+        "fixed": 7896
+      },
+      "Peripherals.rng": {
+        "parent": 8544,
+        "before": 8552,
+        "fixed": 8544
+      },
+      "Peripherals.cpu_sub": {
+        "parent": 7928,
+        "before": 7928,
+        "fixed": 7928
+      },
+      "Peripherals.misc": {
+        "parent": 7952,
+        "before": 7952,
+        "fixed": 7952
+      },
+      "Peripherals.spi_exec": {
+        "parent": 8616,
+        "before": 8624,
+        "fixed": 8616
+      },
+      "Peripherals.ledc": {
+        "parent": 8120,
+        "before": 8120,
+        "fixed": 8120
+      },
+      "Peripherals.mcpwm": {
+        "parent": 8264,
+        "before": 8264,
+        "fixed": 8264
+      },
+      "Peripherals.i2s0 (fixed: optional)": {
+        "parent": 8536,
+        "before": 8536,
+        "fixed": 8536
+      },
+      "Peripherals.work_pending": {
+        "parent": 8617,
+        "before": 8625,
+        "fixed": 8617
+      },
+      "SocBus size": {
+        "parent": 10176,
+        "before": 10184,
+        "fixed": 10176
+      },
+      "SocBus.ble": {
+        "parent": 8624,
+        "before": 8632,
+        "fixed": 8624
+      },
+      "SocBus.rom": {
+        "parent": 8960,
+        "before": 8968,
+        "fixed": 8960
+      },
+      "SocBus.sram": {
+        "parent": 8984,
+        "before": 8992,
+        "fixed": 8984
+      },
+      "SocBus.lp_sram": {
+        "parent": 9008,
+        "before": 9016,
+        "fixed": 9008
+      },
+      "SocBus.flash": {
+        "parent": 9032,
+        "before": 9040,
+        "fixed": 9032
+      },
+      "SocBus.mmu": {
+        "parent": 9104,
+        "before": 9112,
+        "fixed": 9104
+      },
+      "SocBus.mmu_index": {
+        "parent": 10160,
+        "before": 10168,
+        "fixed": 10160
+      },
+      "SocBus.mmu_power_ctrl": {
+        "parent": 10164,
+        "before": 10172,
+        "fixed": 10164
+      },
+      "SocBus.periph": {
+        "parent": 0,
+        "before": 0,
+        "fixed": 0
+      },
+      "SocBus.board": {
+        "parent": 9088,
+        "before": 9096,
+        "fixed": 9088
+      },
+      "SocBus.cycles": {
+        "parent": 10128,
+        "before": 10136,
+        "fixed": 10128
+      },
+      "SocBus.last_fault": {
+        "parent": 9080,
+        "before": 9088,
+        "fixed": 9080
+      },
+      "SocBus.irq_dirty": {
+        "parent": 10169,
+        "before": 10177,
+        "fixed": 10169
+      },
+      "SocBus.gpio_events": {
+        "parent": 9056,
+        "before": 9064,
+        "fixed": 9056
+      },
+      "SocBus.debug": {
+        "parent": 10136,
+        "before": 10144,
+        "fixed": 10136
+      }
+    },
+    "hot_functions": [
+      {
+        "function": "<esp32c6::board::WaveshareC6Lcd147 as esp_soc::board::BoardModel>::next_deadline",
+        "parent_instructions": 2,
+        "before_instructions": 2,
+        "fixed_instructions": 2,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::fetch",
+        "parent_instructions": 106,
+        "before_instructions": 106,
+        "fixed_instructions": 106,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read16",
+        "parent_instructions": 96,
+        "before_instructions": 96,
+        "fixed_instructions": 96,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read32",
+        "parent_instructions": 96,
+        "before_instructions": 96,
+        "fixed_instructions": 96,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read8",
+        "parent_instructions": 84,
+        "before_instructions": 84,
+        "fixed_instructions": 84,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick",
+        "parent_instructions": 2036,
+        "before_instructions": 2036,
+        "fixed_instructions": 2036,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write16",
+        "parent_instructions": 49,
+        "before_instructions": 49,
+        "fixed_instructions": 49,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write32",
+        "parent_instructions": 48,
+        "before_instructions": 48,
+        "fixed_instructions": 48,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write8",
+        "parent_instructions": 47,
+        "before_instructions": 47,
+        "fixed_instructions": 47,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+        "parent_instructions": 290,
+        "before_instructions": 290,
+        "fixed_instructions": 290,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::refresh_irq",
+        "parent_instructions": 442,
+        "before_instructions": 449,
+        "fixed_instructions": 449,
+        "fixed_matches_parent": false
+      },
+      {
+        "function": "<esp32c6::bus::SocBus>::pending_work",
+        "parent_instructions": 732,
+        "before_instructions": 732,
+        "fixed_instructions": 732,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus>::periph_read",
+        "parent_instructions": 225,
+        "before_instructions": 225,
+        "fixed_instructions": 225,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp32c6::bus::SocBus>::periph_write",
+        "parent_instructions": 1660,
+        "before_instructions": 1746,
+        "fixed_instructions": 1747,
+        "fixed_matches_parent": false
+      },
+      {
+        "function": "<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::refresh_optional",
+        "parent_instructions": 225,
+        "before_instructions": 259,
+        "fixed_instructions": 259,
+        "fixed_matches_parent": false
+      },
+      {
+        "function": "<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+        "parent_instructions": 194,
+        "before_instructions": 227,
+        "fixed_instructions": 227,
+        "fixed_matches_parent": false
+      },
+      {
+        "function": "<esp32c6::periph::Peripherals>::read32",
+        "parent_instructions": 679,
+        "before_instructions": 676,
+        "fixed_instructions": 677,
+        "fixed_matches_parent": false
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run",
+        "parent_instructions": 4325,
+        "before_instructions": 4325,
+        "fixed_instructions": 4325,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run_unmodeled::<false>",
+        "parent_instructions": 1053,
+        "before_instructions": 1053,
+        "fixed_instructions": 1053,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::step_core",
+        "parent_instructions": 465,
+        "before_instructions": 465,
+        "fixed_instructions": 465,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read16",
+        "parent_instructions": 37,
+        "before_instructions": 37,
+        "fixed_instructions": 37,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read32",
+        "parent_instructions": 37,
+        "before_instructions": 37,
+        "fixed_instructions": 37,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read8",
+        "parent_instructions": 39,
+        "before_instructions": 39,
+        "fixed_instructions": 39,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write16",
+        "parent_instructions": 87,
+        "before_instructions": 87,
+        "fixed_instructions": 87,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write32",
+        "parent_instructions": 87,
+        "before_instructions": 87,
+        "fixed_instructions": 87,
+        "fixed_matches_parent": true
+      },
+      {
+        "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write8",
+        "parent_instructions": 79,
+        "before_instructions": 79,
+        "fixed_instructions": 79,
+        "fixed_matches_parent": true
+      }
+    ],
+    "limits": "Static comparison only; The maintainer subsequently closed the C6 idle-path check: ff64902a versus a175e357, 3.50 versus 3.51 s median user CPU (+0.3%), slower 3/7, identical instructions and console hash. Remaining SHA/ECC MMIO and interrupt-source costs are not instruction-identical to the parent."
+  }
+}

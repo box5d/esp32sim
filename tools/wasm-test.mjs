@@ -11,7 +11,8 @@
 //
 // A manifest (web/wasm/fw/<name>.json) names the board, sizes, stubs and files exactly as the
 // page reads them. Each run boots and executes `seconds` (3) of emulated time in 2 M-cycle
-// slices, then expects a `board` message, the expected console line, and a clean run.
+// slices, then expects a `board` message, the expected console line, at least `min_frames` panel
+// frames when the manifest says so, and a clean run.
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,7 @@ import { homedir } from 'node:os';
 import { createJitHost } from '../web/wasm/jit.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const fwDir = join(root, 'web', 'wasm', 'fw');
+const fwDir = process.env.FW_DIR || join(root, 'web', 'wasm', 'fw');
 const names = process.argv.slice(2).length ? process.argv.slice(2) : ['hello', 'c3-hello'];
 const EXPECT = { console: 'Hello world!', seconds: 3 };
 
@@ -63,7 +64,7 @@ async function runNetwork(name, m) {
   const logs = [];
   let w;
   const blockJit = createJitHost(() => w);
-  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { ...blockJit.imports, host_log: (p, n) => logs.push(dec.decode(mem().subarray(p, p + n))) } });
+  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { ...blockJit.imports, host_profile_now: () => performance.now(), host_log: (p, n) => logs.push(dec.decode(mem().subarray(p, p + n))) } });
   w = instance.exports;
   const mem = () => new Uint8Array(w.memory.buffer);
   const withBytes = (bytes, f) => { const p = w.esp32sim_alloc(bytes.length); mem().set(bytes, p); try { return f(p, bytes.length); } finally { w.esp32sim_free(p, bytes.length); } };
@@ -83,9 +84,9 @@ async function runNetwork(name, m) {
       }
     }
     for (const s of [].concat(node.stubs || m.stubs || [])) {
-      const [sym, val] = s.split('=');
+      const [sym, ...values] = s.split('='); const val = values.length ? values.join('=') : undefined;
       const name = ((node.symbols || m.symbols) || {})[sym] || sym;   // as the page: a symbols map resolves a stub without shipping the ELF; a node's own wins
-      if (withBytes(enc.encode(name), (p, n) => w.esp32sim_net_stub(net, i, p, n, Number(val ?? 0) >>> 0)) !== 0) throw new Error(`node ${i}: stub ${sym}: ${logs.join(' | ')}`);
+      if (withBytes(enc.encode(name + (val === undefined ? '' : '=' + val)), (p, n) => w.esp32sim_net_stub_spec(net, i, p, n)) !== 0) throw new Error(`node ${i}: stub ${sym}: ${logs.join(' | ')}`);
     }
   });
   if (w.esp32sim_net_boot(net) !== 0) throw new Error(`boot failed: ${logs.join(' | ')}`);
@@ -116,22 +117,23 @@ async function runNetwork(name, m) {
 async function testJitHandoff() {
   let w;
   const blockJit = createJitHost(() => w);
-  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { ...blockJit.imports, host_log() {} } });
+  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { ...blockJit.imports, host_profile_now: () => performance.now(), host_log() {} } });
   w = instance.exports;
   const mem = () => new Uint8Array(w.memory.buffer);
   const withBytes = (bytes, f) => { const p = w.esp32sim_alloc(bytes.length); mem().set(bytes, p); try { return f(p, bytes.length); } finally { w.esp32sim_free(p, bytes.length); } };
   const emu = withBytes(enc.encode('none'), (p, n) => w.esp32sim_new(p, n, 1, 0));
   const entry = 0x40370000;
-  const program = new Uint8Array(64 * 2 + 3);
-  for (let i = 0; i < 64; i++) program.set([0x0c, 0x03], i * 2); // movi.n a3,0
-  program.set([0x06, 0xff, 0xff], 64 * 2);                       // j .
+  const q = 256; // one default scheduling quantum (q256)
+  const program = new Uint8Array(q * 2 + 3);
+  for (let i = 0; i < q; i++) program.set([0x0c, 0x03], i * 2); // movi.n a3,0
+  program.set([0x06, 0xff, 0xff], q * 2);                       // j .
   const app = new Uint8Array(24 + 8 + program.length), view = new DataView(app.buffer);
   app[0] = 0xe9; app[1] = 1; view.setUint32(4, entry, true);
   view.setUint32(24, entry, true); view.setUint32(28, program.length, true);
   app.set(program, 32);
   if (withBytes(app, (p, n) => w.esp32sim_load(emu, 3, p, n)) !== 0 || w.esp32sim_boot(emu, 1) !== 0) throw new Error('JIT fixture boot failed');
-  if (!dispatchJit(w, emu, mem, new Map(), new Set(), 64)) throw new Error('JIT handoff did not commit');
-  if (w.esp32sim_cycles(emu) !== 64 || w.esp32sim_insns(emu) !== 64) throw new Error('JIT handoff accounting mismatch');
+  if (!dispatchJit(w, emu, mem, new Map(), new Set(), q)) throw new Error('JIT handoff did not commit');
+  if (w.esp32sim_cycles(emu) !== q || w.esp32sim_insns(emu) !== q) throw new Error('JIT handoff accounting mismatch');
   w.esp32sim_delete(emu);
   console.log('ok   wasm JIT handoff: shared-memory block committed at a scheduler boundary');
 }
@@ -141,7 +143,7 @@ async function runManifest(name) {
   if (m.nodes) return runNetwork(name, m);
   const logs = [];
   const blockJit = createJitHost(() => w);
-  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { ...blockJit.imports, host_log: (p, n) => logs.push(dec.decode(mem().subarray(p, p + n))) } });
+  const { instance } = await WebAssembly.instantiate(wasmBytes, { env: { ...blockJit.imports, host_profile_now: () => performance.now(), host_log: (p, n) => logs.push(dec.decode(mem().subarray(p, p + n))) } });
   const w = instance.exports;
   const mem = () => new Uint8Array(w.memory.buffer);
   const withBytes = (bytes, f) => { const p = w.esp32sim_alloc(bytes.length); mem().set(bytes, p); try { return f(p, bytes.length); } finally { w.esp32sim_free(p, bytes.length); } };
@@ -157,9 +159,9 @@ async function runManifest(name) {
     }
   }
   for (const [off, rel] of Object.entries(m.flash_at || {})) withBytes(new Uint8Array(file(rel)), (p, n) => w.esp32sim_load_at(emu, Number(off) >>> 0, p, n));
-  for (const s of m.stubs || []) { const [sym, val] = s.split('='); const name = (m.symbols || {})[sym] || sym;   // as the page: a symbols map resolves a stub without the ELF
-    withBytes(enc.encode(name), (p, n) => w.esp32sim_stub(emu, p, n, Number(val ?? 0) >>> 0)); }
-  if (m.wifi) withBytes(enc.encode(m.wifi), (p, n) => w.esp32sim_wifi(emu, p, n));
+  for (const s of m.stubs || []) { const [sym, ...values] = s.split('='); const val = values.length ? values.join('=') : undefined; const name = (m.symbols || {})[sym] || sym;   // as the page: a symbols map resolves a stub without the ELF
+    if (withBytes(enc.encode(name + (val === undefined ? '' : '=' + val)), (p, n) => w.esp32sim_stub_spec(emu, p, n)) !== 0) throw new Error('invalid stub: ' + s); }
+  if (m.wifi && withBytes(enc.encode(m.wifi), (p, n) => w.esp32sim_wifi(emu, p, n)) !== 0) throw new Error('invalid WiFi configuration');
   w.esp32sim_set_jit(emu, process.env.ESP32SIM_NO_WASM_JIT ? 0 : 1);
   if (w.esp32sim_boot(emu, 0) !== 0) throw new Error(`boot failed: ${logs.join(' | ')}`);
 
@@ -188,13 +190,24 @@ async function runManifest(name) {
   if (panics.length) problems.push(`panicked: ${panics[0]}`);
   if (!board) problems.push('no board message');
   if (!text.includes(m.expect || EXPECT.console)) problems.push(`console never showed ${JSON.stringify(m.expect || EXPECT.console)}; got ${text.length} bytes`);
+  if (m.min_frames !== undefined && frames < m.min_frames) problems.push(`${frames} binary frames, wanted ${m.min_frames}: the firmware never drew its panel`);
   const insns = w.esp32sim_insns(emu);
+  if (w.esp32sim_profile_report && (process.env.CENSUS_OUT || process.env.CENSUS_STDOUT)) {
+    const at = logs.length;
+    w.esp32sim_profile_report(emu);
+    const report = logs.slice(at).join('\n');
+    if (process.env.CENSUS_OUT) (await import('node:fs')).writeFileSync(process.env.CENSUS_OUT, report);
+    if (process.env.CENSUS_STDOUT) {
+      for (const line of report.split('\n')) if (/ex153|wasm-region|^core=|wasm-profile\]/.test(line)) console.log(line);
+      console.log('jit_insns', w.esp32sim_block_jit_insns(emu), 'insns', insns, 'jitstats', JSON.stringify(blockJit.stats));
+    }
+  }
   w.esp32sim_delete(emu);
   const wall = (Date.now() - t0) / 1000;
   if (problems.length) { failures++; console.error(`FAIL ${name}: ${problems.join('; ')}\n  logs: ${logs.slice(0, 5).join('\n        ')}\n  console tail: ${text.slice(-400)}`); }
   else console.log(`ok   ${name}: board ${board}, ${(insns / 1e6).toFixed(1)} M insns in ${wall.toFixed(1)} s wall (${(insns / 1e6 / wall).toFixed(1)} Minsn/s), ${text.split('\n').length} console lines, ${frames} binary frames`);
 }
 
-try { await testJitHandoff(); } catch (e) { failures++; console.error(`FAIL wasm JIT handoff: ${e.message}`); }
+if (!process.env.CENSUS_STDOUT) try { await testJitHandoff(); } catch (e) { failures++; console.error(`FAIL wasm JIT handoff: ${e.message}`); }
 for (const n of names) { try { await runManifest(n); } catch (e) { failures++; console.error(`FAIL ${n}: ${e.message}`); } }
 process.exit(failures ? 1 : 0);

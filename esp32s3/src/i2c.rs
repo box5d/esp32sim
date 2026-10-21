@@ -15,8 +15,8 @@ impl I2cDevice for Ch32v003 {
 }
 
 /// What the board needs to know about the sensor's configuration (written over SCCB).
-#[derive(Default, Debug)]
-pub struct SensorState { pub width: u32, pub height: u32, pub format: u8, pub streaming: bool }
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SensorState { pub width: u32, pub height: u32, pub format: u8, pub streaming: bool, pub window: Option<[u32; 4]>, pub jpeg: bool }
 
 /// OV5640 image sensor over SCCB: 16-bit register addresses, auto-increment.
 pub struct Ov5640 { pub regs: HashMap<u16, u8>, addr: u16, phase: u8, pub writes: u64, state: std::sync::Arc<std::sync::Mutex<SensorState>> }
@@ -26,7 +26,9 @@ impl Ov5640 {
         regs.insert(0x300a, 0x56); regs.insert(0x300b, 0x40);   // chip ID 0x5640
         regs.insert(0x3008, 0x02);                              // system control: normal
         regs.insert(0x302a, 0xb0);                              // silicon revision
-        Ov5640 { regs, addr: 0, phase: 0, writes: 0, state }
+        let sensor = Ov5640 { regs, addr: 0, phase: 0, writes: 0, state };
+        sensor.sync_state();
+        sensor
     }
     pub fn get(&self, r: u16) -> u8 { *self.regs.get(&r).unwrap_or(&0) }
     fn sync_state(&self) {
@@ -34,6 +36,15 @@ impl Ov5640 {
         st.width = ((self.get(0x3808) as u32 & 0xf) << 8) | self.get(0x3809) as u32;    // DVP output width
         st.height = ((self.get(0x380a) as u32 & 0x7) << 8) | self.get(0x380b) as u32;   // DVP output height
         st.format = self.get(0x4300);
+        // esp32-camera v2.1.4 sensors/private_include/ov5640_regs.h and
+        // ov5640_settings.h; format values also match esp32-camera v2.0.4.
+        // Inclusive sensor-array window. Missing window registers preserve whole-image scaling.
+        st.window = (0x3800..=0x3807).all(|r| self.regs.contains_key(&r)).then(|| {
+            [0x3800, 0x3802, 0x3804, 0x3806].map(|r| {
+                ((self.get(r) as u32 & if r & 2 == 0 { 15 } else { 7 }) << 8) | self.get(r + 1) as u32
+            })
+        });
+        st.jpeg = self.get(0x3821) & 0x20 != 0;
         st.streaming = self.get(0x3008) & 0x40 == 0;
     }
 }
@@ -43,7 +54,10 @@ impl I2cDevice for Ov5640 {
         match self.phase {
             0 => { self.addr = (b as u16) << 8; self.phase = 1; }
             1 => { self.addr |= b as u16; self.phase = 2; }
-            _ => { let v = if self.addr == 0x3008 { b & !0x80 } else { b }; self.regs.insert(self.addr, v); if (0x3808..=0x380b).contains(&self.addr) || self.addr == 0x4300 || self.addr == 0x3008 { self.sync_state(); } self.addr = self.addr.wrapping_add(1); self.writes += 1; }
+            _ => { if self.addr == 0x3008 && b & 0x80 != 0 {
+                self.regs.retain(|r, _| [0x300a, 0x300b, 0x302a].contains(r));
+            }
+            let v = if self.addr == 0x3008 { b & !0x80 } else { b }; self.regs.insert(self.addr, v); if (0x3800..=0x380b).contains(&self.addr) || self.addr == 0x3821 || self.addr == 0x4300 || self.addr == 0x3008 { self.sync_state(); } self.addr = self.addr.wrapping_add(1); self.writes += 1; }
         }
         true
     }
@@ -87,9 +101,22 @@ impl I2cDevice for Tca9554 {
     fn read(&mut self) -> u8 { if self.ptr == 0 { self.input_port() } else { self.regs[self.ptr as usize] } }
 }
 
-/// Touch state shared between the board (UI) and the GT911 model.
+/// Touch state shared between a board (UI) and its touch controller.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct TouchState { pub down: bool, pub x: u16, pub y: u16, pub seen: bool, pub release_pending: bool }
+impl TouchState {
+    pub fn update(&mut self, x: u16, y: u16, down: bool) {
+        self.x = x; self.y = y;
+        if down { self.down = true; self.seen = false; self.release_pending = false; }
+        else if self.seen { self.down = false; }
+        else { self.release_pending = true; }
+    }
+    /// Keep even a short tap readable until the guest has observed the press once.
+    fn observe(&mut self) {
+        if self.release_pending && self.seen { self.down = false; self.release_pending = false; }
+        if self.down { self.seen = true; }
+    }
+}
 
 /// Goodix GT911 capacitive touch controller: 16-bit register addresses; product ID at 0x8140,
 /// config at 0x8047.., status + up to 5 points at 0x814E...
@@ -98,11 +125,7 @@ impl Gt911 {
     pub fn new(touch: std::sync::Arc<std::sync::Mutex<TouchState>>, w: u16, h: u16) -> Self { Gt911 { addr: 0, phase: 0, touch, reads: 0, w, h } }
     fn reg(&self, a: u16) -> u8 {
         let mut tl = self.touch.lock().unwrap();
-        if a == 0x814e {
-            // like the real controller's buffer: a touch stays readable until the host has seen it once
-            if tl.release_pending && tl.seen { tl.down = false; tl.release_pending = false; }
-            if tl.down { tl.seen = true; }
-        }
+        if a == 0x814e { tl.observe(); }
         let t = *tl;
         match a {
             0x8140 => b'9', 0x8141 => b'1', 0x8142 => b'1', 0x8143 => 0, 0x8144 => 0x60, 0x8145 => 0x10,      // "911", firmware 0x1060
@@ -128,10 +151,7 @@ impl Cst820 {
     pub fn new(touch: std::sync::Arc<std::sync::Mutex<TouchState>>) -> Self { Cst820 { ptr: 0, first: true, touch, reads: 0 } }
     fn reg(&self, addr: u8) -> u8 {
         let mut touch = self.touch.lock().expect("CST820 touch state mutex poisoned");
-        if addr == 0x02 {
-            if touch.release_pending && touch.seen { touch.down = false; touch.release_pending = false; }
-            if touch.down { touch.seen = true; }
-        }
+        if addr == 0x02 { touch.observe(); }
         let touch = *touch;
         match addr {
             0x01 => 0,
@@ -184,7 +204,7 @@ impl Ft6336 {
         match addr {
             0x00 => 0, // DEV_MODE: normal
             0x01 => 0, // GEST_ID: no gesture
-            0x02 => if touch.down { 1 } else { 0 }, // TD_STATUS: 1 touch point
+            0x02 => u8::from(touch.down), // TD_STATUS: 1 touch point
             0x03 => {
                 let event = if touch.down { 0x00 } else { 0x40 }; // 00b: press down, 01b: lift up
                 event | (((touch.x >> 8) as u8) & 0x0f)
@@ -294,17 +314,21 @@ impl Default for ImuState {
     }
 }
 
-/// Bosch BMI270 6-axis IMU (I2C @ 0x69).
+/// Bosch BMI270 6-axis IMU (I2C @ 0x69) on the M5Stack CoreS3.
+/// Motion 0 follows the browser's live sensor stream (`ImuState`, m/s^2 and dps); a scripted
+/// motion (`ImuMotion`, mode != 0) latches the QMI8658 handling script into the data registers,
+/// in the sensor's mounted axes (accel 2 g range: 16384 LSB/g, gyro 2000 dps: 16.384 LSB/dps).
 pub struct Bmi270 {
     pub regs: [u8; 256],
     ptr: u8,
     first: bool,
+    motion: std::sync::Arc<ImuMotion>,
     pub imu: std::sync::Arc<std::sync::Mutex<ImuState>>,
     pub writes: u64,
 }
 
 impl Bmi270 {
-    pub fn new(imu: std::sync::Arc<std::sync::Mutex<ImuState>>) -> Self {
+    pub fn new(motion: std::sync::Arc<ImuMotion>, imu: std::sync::Arc<std::sync::Mutex<ImuState>>) -> Self {
         let mut regs = [0u8; 256];
         regs[0x00] = 0x24; // CHIP_ID
         regs[0x02] = 0x00; // ERR_REG
@@ -314,16 +338,30 @@ impl Bmi270 {
         regs[0x21] = 0x01; // INTERNAL_STATUS (ASIC init message: complete)
         // BMM150 AUX chip ID and dummy mag data
         regs[0x0a] = 0x32; // BMM150 Chip ID
-        Bmi270 {
-            regs,
-            ptr: 0,
-            first: true,
-            imu,
-            writes: 0,
+        Bmi270 { regs, ptr: 0, first: true, motion, imu, writes: 0 }
+    }
+
+    /// Latch one scripted sample into the accel/gyro data registers and mark them ready.
+    /// BMI270 data register map: ACC 0x0c..0x12, GYR 0x12..0x18, little-endian, each axis
+    /// scaled by the driver's configured range (2 g, 2000 dps, as esp_bmi270 sets it up).
+    fn latch(&mut self, cycle: u64) {
+        let (accel, gyro) = motion_script(cycle as f64 / crate::periph::CPU_HZ as f64);
+        let quantize = |v: f64| {
+            let r = if v < 0.0 { v - 0.5 } else { v + 0.5 };
+            (r.clamp(-32768.0, 32767.0) as i32 as i16).to_le_bytes()
+        };
+        for (axis, &g) in accel.iter().enumerate() {
+            self.regs[0x0c + 2 * axis..0x0e + 2 * axis].copy_from_slice(&quantize(g * 16384.0));
         }
+        for (axis, &dps) in gyro.iter().enumerate() {
+            self.regs[0x12 + 2 * axis..0x14 + 2 * axis].copy_from_slice(&quantize(dps * 16.384));
+        }
+        self.regs[0x03] |= 0x60;             // STATUS: drdy_acc | drdy_gyr
+        self.regs[0x04] |= 0x07;             // INT_STATUS_0: drdy_acc | drdy_gyr | drdy_aux
     }
 
     fn reg(&self, addr: u8) -> u8 {
+        use std::sync::atomic::Ordering::Relaxed;
         match addr {
             0x00 => 0x24, // CHIP_ID
             0x02 => 0x00, // ERR_REG
@@ -331,6 +369,7 @@ impl Bmi270 {
             0x1c => 0x00,
             0x1d => 0xe0, // AUX, gyro and accelerometer ready: bits 13..15 of INT_STATUS
             0x21 => 0x01, // INTERNAL_STATUS (init complete)
+            0x0c..=0x17 if self.motion.mode.load(Relaxed) != 0 => self.regs[addr as usize],
             0x0c..=0x17 => {
                 let imu = *self.imu.lock().unwrap();
                 // 2G range: 1G = 9.80665 m/s^2 = 16384 LSB => lsb = (m/s^2 / 9.80665) * 16384
@@ -370,8 +409,12 @@ impl Bmi270 {
 
 impl I2cDevice for Bmi270 {
     fn start(&mut self, read: bool) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
         if !read {
             self.first = true;
+        } else if self.motion.mode.load(Relaxed) != 0 {
+            // A scripted motion samples at read start, like the QMI8658's latch.
+            self.latch(self.motion.cycle.load(Relaxed));
         }
         true
     }
@@ -623,5 +666,165 @@ mod tests {
         assert!(device.write(0x03)); // Output Port 1
         assert!(device.write(0b0000_0110)); // Enable LCD reset & backlight
         assert_eq!(port1.load(std::sync::atomic::Ordering::Relaxed), 0b0000_0110);
+    }
+}
+
+/// Board clock and motion selection shared between a board and its QMI8658.
+#[derive(Default, Debug)]
+pub struct ImuMotion { pub cycle: std::sync::atomic::AtomicU64, pub mode: std::sync::atomic::AtomicU32 }
+
+/// QMI8658 IMU. Mode 0 is the register stub every existing workload was pinned against
+/// (WHO_AM_I only, data never ready). Mode 1 plays a fixed 30 s handling script as a
+/// function of guest time, so a benchmark that tilts and shakes the board stays exact.
+/// The script produces one sample every 4 ms (250 Hz, the rate fluidbox configures; other ODR
+/// settings are not modeled): timestamp and data come from the same sample, and STATUS0 reports
+/// new data until a read of the sensor outputs consumes that sample.
+pub struct Qmi8658 { regs: [u8; 256], ptr: u8, first: bool, consumed: Option<u32>, motion: std::sync::Arc<ImuMotion> }
+impl Qmi8658 {
+    pub fn new(motion: std::sync::Arc<ImuMotion>) -> Self {
+        let mut regs = [0; 256];
+        regs[0x00] = 0x05;
+        Qmi8658 { regs, ptr: 0, first: true, consumed: None, motion }
+    }
+    /// Latch one sample into STATUS0 and the timestamp/temperature/accel/gyro registers.
+    fn latch(&mut self, cycle: u64) {
+        let stamp = (cycle / (crate::periph::CPU_HZ / 250)) as u32;
+        let (accel, gyro) = motion_script(f64::from(stamp) / 250.0);
+        // Scales follow the configured ranges: CTRL2[6:4] accel 2..16 g, CTRL3[6:4] gyro 16..2048 dps.
+        let accel_lsb = f64::from(16384u32 >> ((self.regs[0x03] >> 4) & 3));
+        let gyro_lsb = f64::from(2048u32 >> ((self.regs[0x04] >> 4) & 7));
+        let quantize = |v: f64| {
+            let r = if v < 0.0 { v - 0.5 } else { v + 0.5 };
+            (r.clamp(-32768.0, 32767.0) as i32 as i16).to_le_bytes()
+        };
+        self.regs[0x2e] = if self.consumed == Some(stamp) { 0 } else { 0x03 };
+        // A read of the sensor outputs consumes this sample.
+        if (0x35..=0x40).contains(&self.ptr) { self.consumed = Some(stamp); }
+        self.regs[0x30..0x33].copy_from_slice(&stamp.to_le_bytes()[..3]);
+        self.regs[0x33..0x35].copy_from_slice(&(25i16 * 256).to_le_bytes());
+        for axis in 0..3 {
+            self.regs[0x35 + 2 * axis..0x37 + 2 * axis].copy_from_slice(&quantize(accel[axis] * accel_lsb));
+            self.regs[0x3b + 2 * axis..0x3d + 2 * axis].copy_from_slice(&quantize(gyro[axis] * gyro_lsb));
+        }
+    }
+}
+impl I2cDevice for Qmi8658 {
+    fn start(&mut self, read: bool) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !read { self.first = true; } else if self.motion.mode.load(Relaxed) != 0 { self.latch(self.motion.cycle.load(Relaxed)); }
+        true
+    }
+    fn write(&mut self, b: u8) -> bool { if self.first { self.ptr = b; self.first = false; } else { self.regs[self.ptr as usize] = b; self.ptr = self.ptr.wrapping_add(1); } true }
+    fn read(&mut self) -> u8 { let v = self.regs[self.ptr as usize]; self.ptr = self.ptr.wrapping_add(1); v }
+}
+
+/// Sine from + - * / and floor only, so every platform and build produces the same bits.
+fn sin(x: f64) -> f64 {
+    const TAU: f64 = std::f64::consts::TAU;
+    let mut x = x - TAU * (x / TAU + 0.5).floor();
+    if x > std::f64::consts::FRAC_PI_2 { x = std::f64::consts::PI - x; }
+    if x < -std::f64::consts::FRAC_PI_2 { x = -std::f64::consts::PI - x; }
+    let x2 = x * x;
+    x * (1.0 - x2 / 6.0 * (1.0 - x2 / 20.0 * (1.0 - x2 / 42.0 * (1.0 - x2 / 72.0 * (1.0 - x2 / 110.0)))))
+}
+fn smoothstep(a: f64, b: f64, t: f64) -> f64 { let x = ((t - a) / (b - a)).clamp(0.0, 1.0); x * x * (3.0 - 2.0 * x) }
+
+/// The handling script in the board's screen frame (x right, y down the screen, z into the
+/// case): settle upright, then swing and lean, turn upside down and back, with three shakes.
+/// Returns (accelerometer g, gyro dps) in QMI8658 axes, as the AMOLED 1.8 mounts it.
+pub fn motion_script(t: f64) -> ([f64; 3], [f64; 3]) {
+    use std::f64::consts::{PI, TAU};
+    let angles = |t: f64| {
+        let on = smoothstep(3.0, 5.0, t);
+        let flip = PI * (smoothstep(13.0, 15.0, t) - smoothstep(20.0, 22.0, t));
+        let roll = on * (1.1 * sin(TAU * (t - 3.0) / 8.0) + 0.35 * sin(TAU * (t - 3.0) / 2.9)) + flip;
+        let lean = on * 0.45 * sin(TAU * (t - 3.0) / 11.0);
+        (roll, lean)
+    };
+    let (roll, lean) = angles(t);
+    let cos = |x: f64| sin(x + PI / 2.0);
+    // The accelerometer reports the reaction to gravity: minus the unit "down" vector.
+    let mut a = [-sin(roll) * cos(lean), -cos(roll) * cos(lean), -sin(lean)];
+    for (start, axis) in [(10.0, 0), (18.0, 1), (25.0, 2)] {
+        if (start..start + 0.8).contains(&t) {
+            let window = sin(PI * (t - start) / 0.8);
+            a[axis] += 2.0 * window * window * sin(TAU * 7.0 * (t - start));
+        }
+    }
+    let h = 0.001;
+    let ((r0, l0), (r1, l1)) = (angles(t - h), angles(t + h));
+    let deg = 180.0 / PI / (2.0 * h);
+    let w = [(l1 - l0) * deg, 0.0, (r1 - r0) * deg];
+    // Screen frame to QMI8658 axes (inverse of fluidbox's IMU_MAP): imu = (-y, x, z).
+    ([-a[1], a[0], a[2]], [-w[1], w[0], w[2]])
+}
+
+#[cfg(test)]
+mod qmi8658_tests {
+    use super::*;
+    use std::sync::{atomic::Ordering::Relaxed, Arc};
+
+    fn read(imu: &mut Qmi8658, reg: u8, n: usize) -> Vec<u8> {
+        imu.start(false); imu.write(reg); imu.start(true);
+        (0..n).map(|_| imu.read()).collect()
+    }
+    fn configure(imu: &mut Qmi8658) {
+        for (reg, value) in [(0x03u8, 0x23u8), (0x04, 0x43)] { imu.start(false); imu.write(reg); imu.write(value); }
+    }
+
+    #[test]
+    fn still_mode_is_the_old_register_stub() {
+        let mut imu = Qmi8658::new(Arc::default());
+        configure(&mut imu);
+        assert_eq!(read(&mut imu, 0x00, 1), [0x05]);
+        assert_eq!(read(&mut imu, 0x2e, 1), [0x00]);
+        assert_eq!(read(&mut imu, 0x35, 12), [0; 12]);
+    }
+
+    #[test]
+    fn scripted_motion_is_a_function_of_guest_time() {
+        let motion = Arc::new(ImuMotion::default());
+        motion.mode.store(1, Relaxed);
+        let mut imu = Qmi8658::new(motion.clone());
+        configure(&mut imu);
+        // Upright at reset: +1 g on the QMI8658 x axis (fluidbox: "upright, port right -> (+g, 0, 0)").
+        assert_eq!(read(&mut imu, 0x2e, 1), [0x03]);
+        let sample = read(&mut imu, 0x35, 12);
+        assert_eq!(i16::from_le_bytes([sample[0], sample[1]]), 4096);
+        assert_eq!(&sample[2..], &[0; 10]);
+        // Later samples tilt, keep 1 g outside shakes, and repeat bit for bit.
+        let at = |imu: &mut Qmi8658, seconds: f64| {
+            motion.cycle.store((seconds * crate::periph::CPU_HZ as f64) as u64, Relaxed);
+            read(imu, 0x35, 12)
+        };
+        let tilted = at(&mut imu, 6.5);
+        let g = |s: &[u8]| (0..3).map(|i| f64::from(i16::from_le_bytes([s[2 * i], s[2 * i + 1]])) / 4096.0).map(|v| v * v).sum::<f64>().sqrt();
+        assert!((g(&tilted) - 1.0).abs() < 0.01 && tilted[0..2] != sample[0..2]);
+        assert_eq!(at(&mut imu, 6.5), tilted);
+        assert!(g(&at(&mut imu, 10.3)) > 1.5, "a shake adds linear acceleration");
+        assert!((sin(1.0) - 1f64.sin()).abs() < 1e-7 && (sin(-4.0) - (-4f64).sin()).abs() < 1e-7);
+    }
+
+    #[test]
+    fn one_timestamp_is_one_sample_and_is_consumed_once() {
+        let motion = Arc::new(ImuMotion::default());
+        motion.mode.store(1, Relaxed);
+        let mut imu = Qmi8658::new(motion.clone());
+        configure(&mut imu);
+        let at = |imu: &mut Qmi8658, seconds: f64, reg: u8, n: usize| {
+            motion.cycle.store((seconds * crate::periph::CPU_HZ as f64) as u64, Relaxed);
+            read(imu, reg, n)
+        };
+        // Reviewer case: two reads inside one 4 ms sample during a shake see the same stamp and data.
+        let (a, b) = (at(&mut imu, 10.3001, 0x30, 15), at(&mut imu, 10.3011, 0x30, 15));
+        assert_eq!(a, b);
+        let c = at(&mut imu, 10.3041, 0x30, 15);
+        assert_ne!(a[..3], c[..3]);
+        assert_ne!(a[5..], c[5..]);
+        // STATUS0: new until the outputs of that sample are read, then new again at the next sample.
+        assert_eq!(at(&mut imu, 12.0001, 0x2e, 1), [0x03]);
+        at(&mut imu, 12.0002, 0x35, 12);
+        assert_eq!(at(&mut imu, 12.0003, 0x2e, 1), [0x00]);
+        assert_eq!(at(&mut imu, 12.0041, 0x2e, 1), [0x03]);
     }
 }

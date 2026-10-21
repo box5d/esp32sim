@@ -1,10 +1,11 @@
 # Architecture
 
-esp32sim emulates two ESP32 SoCs across both of Espressif's CPU architectures: the **ESP32-S3**
-(two Xtensa LX7 cores) and the **ESP32-C3** (one RISC-V RV32IMC core, see
-[esp32c3.md](esp32c3.md)). They share the SoC peripheral models wherever the IP is identical, and
+esp32sim emulates three ESP32 SoCs across both of Espressif's CPU architectures: the **ESP32-S3**
+(two Xtensa LX7 cores), **ESP32-C3** (one RISC-V RV32IMC core, see
+[esp32c3.md](esp32c3.md)) and **ESP32-C6** (one RISC-V RV32IMAC core, see
+[esp32c6.md](esp32c6.md)). They share the SoC peripheral models wherever the IP is identical and
 differ in their CPU crate, memory map and interrupt controller. This document describes the S3,
-which is the more complete of the two; the C3 follows the same shape.
+which has the most complete model; the C3 and C6 follow the same shape.
 
 esp32sim is an instruction-level emulator of the ESP32-S3: it executes the real mask ROM, the
 real second-stage bootloader and an unmodified application image on two emulated Xtensa LX7
@@ -14,13 +15,18 @@ licensed, and contains no third-party emulator code (QEMU was consulted for inst
 *semantics* only).
 
 ```
-cli/          esp32sim binary, both chips: argument parsing, image loading, run loop, reports
-              (`--chip s3|c3`; the setup that is chip-specific is one function per chip)
-esp-soc/      Machine<S: Soc>, written once for every chip: the scheduler (64-instruction quanta,
-              idle skipping, per-core reset state), lazy device time, console capture, action
-              scripts, function stubs/probes, tracing and watchpoints, the web UI protocol,
-              real-time pacing, ROM/app image loading, reboot; the Soc/SocBus traits a chip
-              implements; the BoardModel trait; elf/image/picture loaders; the web server
+cli/          esp32sim binary, all three chips: argument parsing, image loading, run loop, reports
+              (`--chip s3|c3|c6`; the setup that is chip-specific is one function per chip)
+esp-soc/      Machine<S: Soc>, written once for every chip: the scheduler (256-instruction quanta
+              on wasm32, 64 natively; idle skipping, per-core reset state), lazy device time,
+              console capture, action scripts, function stubs/probes, tracing and watchpoints,
+              the web UI protocol, real-time pacing, ROM/app image loading, reboot; the
+              Soc/SocBus traits a chip implements; the BoardModel trait; elf/image/picture
+              loaders; the web server
+  wifi.rs     the virtual 802.11 access point (beacons, probe/auth/assoc, WPA2 four-way
+              handshake) and StationLink, the station's side of the air every chip's MAC shares
+  net.rs      the emulated subnet 10.0.2.0/24: ARP, DHCP, ICMP, DNS, SNTP
+  nat.rs      user-mode NAT: guest TCP/UDP relayed over ordinary host sockets
 esp32s3/      the SoC and boards
   soc.rs      the S3 as a Soc: two LX7 cores, core-1 reset/stall state, interrupt lines per core,
               app boot, reboot (what survives), console streams, audio, board
@@ -31,13 +37,7 @@ esp32s3/      the SoC and boards
               RTC_CNTL + WDT, efuse, SPI0/1 flash + PSRAM, SHA, AES, RSA/MPI, RNG, regi2c,
               GDMA, I2S, RMT, LCD_CAM, WiFi MAC)
   i2c.rs      I2C master controller + bus devices (CH32V003, OV5640, ES8311/ES7210)
-  wifi.rs     virtual 802.11 access point: beacons, probe/auth/assoc, WPA2 four-way handshake
-  net.rs      the emulated subnet 10.0.2.0/24: ARP, DHCP, ICMP, DNS, SNTP
-  nat.rs      user-mode NAT: guest TCP/UDP relayed over ordinary host sockets
-  crypto.rs   SHA-1/2, HMAC, PBKDF2, the 802.11 PRF, AES, AES key wrap, bignum arithmetic
   board/      one file per board: Atech14, WaveshareCam, WaveshareLcd4b, WaveshareAmoled18V2 (BoardModel from esp-soc)
-  web.rs      dependency-free HTTP + WebSocket server
-  elf.rs / image.rs / picture.rs   loaders (ELF symbols/segments, ESP app images, BMP/PPM)
 esp-periph/   the peripheral IP Espressif chips share, one file each (UART, USB-Serial/JTAG,
               systimer, TIMG, GPIO, RTC_CNTL, efuse, SYSTEM, SPI_MEM, GDMA, SHA/AES/RSA, I2S, RMT,
               I2C), the `Device` trait they implement, and `device_set!`: the one table per chip
@@ -57,14 +57,28 @@ web/          index.html: the landing page; run.html: board drawing, console, We
               emu.js + wasm/worker.js: the same page driving the WebAssembly build (docs/wasm.md)
 wasm/         esp32sim-wasm: C ABI over Machine plus the guarded browser-JIT handoff
 wasm-jit/     receipt-priced wasm emitter; first SRAM opcode slice, shared-memory sidecars
+riscv-rv32/   RV32IMAC decoder (sampled objdump checks), interpreter, disassembler
+esp32c3/      the C3 SoC: memory map, interrupt matrix, cache controller, RNG; peripheral models
+              shared with esp32s3 where the IP is identical
+esp32c6/      the C6 SoC: unified memory map and MMU, interrupt matrix + PLIC/INTPRI, L1 cache,
+              PCR, the LP blocks (reset cause, software reset, RTC timer), ASSIST_DEBUG,
+              the 802.15.4 and WiFi MACs
+tests/        golden-output regression tests and their fixtures (tests/README.md)
+hw/           JTAG differential-test scripts against a real board, captured C3 and C6 consoles
+              (hardware-testing.md)
+examples/     firmware sources: hello_world (S3, C3, C6), waveshare-cam, wifi-station,
+              c6-wifi-station, c6-radio-dashboard, ttgo-tdisplay, …
+tools/        PIE table generator (TRM-derived), bench.py (interleaved A/B benchmark),
+              wasm-build.sh (the WebAssembly module), fetch-demo-assets.sh
 ```
 
 ## CPU core (`xtensa-lx7`)
 
 - **Decoder**: `decode(pc, bytes) -> Insn` with fields `op, r, s, t, imm, imm2, len, raw`.
-  Verified against `xtensa-esp32s3-elf-objdump` over the Pocket Synth app, the mask ROM, the
-  IDF 5.5 bootloader, `hello_world` and the autopling image (977 544 instructions, 0
-  mismatches, `xtensa-lx7/tests/objdump_diff.rs`).
+  Earlier full-listing runs reported 977,544 instructions with zero mismatches over the
+  Pocket Synth app, mask ROM, IDF 5.5 bootloader, `hello_world` and autopling image.
+  CI checks sampled corpora; the optional full-listing test requires external inputs.
+  PIE operand comparisons are excluded by [the decoder test](../xtensa-lx7/tests/objdump_diff.rs).
 - **PIE**: all 217 `ee.*` encodings come from the TRM chapter-1 "Instruction Word" layouts
   (`tools/gen_pie_table.py` + `tools/pie_trm.json` → `pie_table.rs`), cross-checked against
   the ESP-IDF 5.5 assembler. Execution follows the TRM "Operation" pseudo-code; PIE is
@@ -120,8 +134,8 @@ wasm-jit/     receipt-priced wasm emitter; first SRAM opcode slice, shared-memor
   the MAC's TSF timestamp, the FE's IQ-done bit) are handled in `DeviceSet::pre_access`.
 - **Interrupts**: every source has a level computed by its model (`Peripherals::source_status`);
   the per-core interrupt matrix maps sources to the 32 Xtensa interrupt lines. Lines are
-  recomputed when a register write flags `irq_dirty` or every 32 cycles, then written into
-  `cpu.interrupt` so the next `step()` sees them.
+  recomputed after delivered device ticks or a change flags `irq_dirty`, then presented to
+  the core before execution continues. The scheduler does not poll them every 32 cycles.
 - **DMA**: GDMA out-channels feed I2S0/I2S1 (audio → `pcm` samples at the configured rate),
   in-channels are fed by the LCD_CAM camera engine (one frame per sensor period). Descriptor
   chains are walked in guest memory exactly as the driver builds them.
@@ -142,14 +156,16 @@ change), `--coverage[-file]` (block starts per function), `--irq-latency` (raise
 line), `--vcd` (GPIO edges and interrupt lines as a waveform). These two use ordinary `TRAP`
 callbacks and retain block execution. `TRAP` receives the run-entry PC and post-trap CPU state;
 `TRAP_PC` requests exact instruction attribution, at a throughput cost. Only `INSN` observers
-force the single-step hooks, and only those that say `NO_IDLE_SKIP` change emulated timing — `--profile` does,
-`--break` does not, exactly as before. A `CostModel` (`Machine::set_cost_model`) switches the
+force the single-step hooks, and only those that say `NO_IDLE_SKIP` change emulated timing.
+`--profile` requests it. Breakpoints instead inspect sleeping PCs at scheduling boundaries
+without disabling idle skipping (`IDLE_PC`).
+A `CostModel` (`Machine::set_cost_model`) switches the
 machine to a per-event path that records the conceptual fetch, CPU bus accesses, control event,
 trap timing and next pc. The model may refuse any event it cannot price.
 
 ## Scheduling and time
 
-Without a cost model, `Machine::run` interleaves the cores in quanta of 64 instructions. A core sitting in `waiti`
+Without a cost model, `Machine::run` interleaves the cores in quanta of 256 instructions in the browser (wasm32) build and 64 natively ([EX047](experiments.md#ex047)); `esp32sim_set_quantum` selects 64–4096 in multiples of 64. A core sitting in `waiti`
 with nothing pending costs nothing. When both cores are idle, each advance is at most
 512 cycles and is shortened to the earliest enabled-core wakeup, bus deadline, script event,
 cycle limit or remaining instruction allowance. The S3 bus deadline also bounds idle steps to
@@ -161,6 +177,27 @@ With `--web` the machine is paced to wall time (sleeping when ahead, resynchroni
 than bursting if it falls > 0.5 s behind). Work that costs host syscalls — reading the NAT's
 sockets — runs on its own emulated-time cadence rather than every round, because at 240 MHz a
 per-round syscall costs more than the instructions it interleaves with.
+
+**Virtual quanta.** When exactly one core is busy and every other core is idle, the per-quantum
+cut serves nobody: no other core runs between the quanta, and nothing else can change until the
+next device deadline. `run_unmodeled` then gives the busy core one budget of up to `vq_max` quanta
+(`Machine::vq_max`, 1024 in the browser build, 1 natively) and afterwards closes the rounds it
+spanned exactly as the loop would have closed them one by one. The run length is bounded so that
+no interior boundary has work: no device flush (`SocBus::next_deadline`), script event, page push,
+timer wake-up of an idle core, cycle or instruction limit. A device register is reached only at
+exact device time: while such a run is active the bus is armed (`SocBus::set_defer`), the executor
+asks `Bus::defer_access` before a word access (a 16-register scan covers PIE and MAC16 operands),
+and a hit stops in front of the instruction; the machine closes the completed rounds and finishes
+the current quantum the ordinary way, where the access executes. A run that a register cuts short
+inside two quanta doubles a skip counter, so firmware that polls registers every few instructions
+is left alone. Results are bit-identical with `vq_max = 1`: the TinyDraw and pocket-tank batteries
+keep their pinned instruction totals and console hashes, and the Atech, SID and panel goldens keep
+their WAV hashes (`ESP32SIM_VQ_NATIVE=1 ESP32SIM_VQ=1000 --no-jit`; the AArch64 JIT's helpers have
+no deferral guard, which is why the native default is off). `SocBus::vq_violations` counts any
+register access that escaped deferral; it must stay zero for the claim to hold. The S3 bus also
+lengthens its device-tick backstop from 256 to 32,768 cycles while no cadence-driven device is
+active (I2S, LCD_CAM, GDMA, WiFi, AES/SHA DMA, SPI2, RMT, GPIO changes, the RTC watchdog, USB SOF
+interrupts), which is what lets a run reach the next timer deadline.
 
 With a cost model, each core has a next-ready timestamp in the one shared device timeline. The
 machine runs the ready core with the lowest timestamp, breaking ties by core index, and advances
@@ -176,20 +213,25 @@ stops with `Halted` instead of waiting for host input.
 
 Nothing about the network is faked at the API level: the firmware runs Espressif's own closed
 `libpp`/`libnet80211` against a modelled MAC, and what comes out the other end is 802.11 frames.
-Five layers turn those into packets on the host's network:
+Six layers turn those into packets on the host's network:
 
 ```
 esp_wifi + libpp/libnet80211        unmodified blob, drives the MAC registers
-  WifiMac (periph.rs)               TX queues, RX descriptor ring, interrupt events, TSF
-  VirtualAp (wifi.rs)               beacons, probe/auth/assoc responses, WPA2 four-way handshake,
+  WifiMac (each chip)               TX queues, RX descriptor ring, interrupt events, TSF (S3/C3);
+                                    the S3's in periph.rs, the C3's and C6's in their wifi.rs
+  StationLink (esp-soc wifi.rs)     shared by the chips: RX pacing, network step, Ethernet relay
+  VirtualAp (esp-soc wifi.rs)       beacons, probe/auth/assoc responses, WPA2 four-way handshake,
                                     802.11 <-> Ethernet conversion, CCMP framing
   VirtualNet (net.rs)               10.0.2.0/24: ARP, DHCP, ICMP echo, DNS, SNTP from the host clock
   Nat (nat.rs)                      everything past the gateway -> host sockets
 ```
 
-- **The air**: `wifi_air_step()` in `bus.rs` delivers one frame at a time into the RX ring —
-  spaced ~400 µs apart, and never before the driver has recycled the previous descriptor —
-  then raises the MAC's RX interrupt. Management frames are delivered ahead of beacons so a
+- **The air**: `StationLink::next_rx` (`esp-soc/src/wifi.rs`) picks one frame at a time —
+  spaced ~400 µs apart, and only once the driver has recycled the previous descriptor or 50 ms
+  have passed; a frame that then finds no usable descriptor is dropped and counted, and the gap
+  and the 50 ms start again from it, on every chip — and
+  each chip's `wifi_air_step()` in its `bus.rs` writes it into the RX ring with the chip's
+  descriptor and header layout, then raises the MAC's RX interrupt. Management frames are delivered ahead of beacons so a
   response never waits behind a beacon the ring may drop.
 - **Encryption**: the four-way handshake is real (PMK, PTK, MIC, AES-key-wrapped GTK), but data
   frames carry plaintext *framed* as CCMP — protected bit, 8-byte CCMP header with the right key

@@ -1,0 +1,54 @@
+[
+  {
+    "check": "assets",
+    "command": "tools/fetch-demo-assets.sh --no-linux",
+    "exit": 0
+  },
+  {
+    "check": "clippy",
+    "command": "cargo +1.99.0 clippy --workspace --all-targets -- -D warnings",
+    "exit": 0
+  },
+  {
+    "check": "clippy-wasm",
+    "command": "cargo +1.99.0 clippy --release --target wasm32-unknown-unknown -p esp32sim-wasm --features jit-tests -- -D warnings",
+    "exit": 0
+  },
+  {
+    "check": "workspace",
+    "command": "cargo +1.99.0 test --release --workspace -- --include-ignored --skip external_",
+    "exit": 0,
+    "passed": 817,
+    "failed": 0,
+    "ignored": 0,
+    "HOME": "empty",
+    "emulator_environment": [
+      "ESP32SIM_ROM_DIR=web/wasm/fw"
+    ]
+  },
+  {
+    "check": "plain",
+    "command": "cargo +1.99.0 test --release --workspace",
+    "exit": 0,
+    "passed": 791,
+    "failed": 0,
+    "ignored": 44,
+    "HOME": "empty",
+    "emulator_environment": []
+  },
+  {
+    "check": "wasm",
+    "command": "RUSTUP_TOOLCHAIN=1.99.0 tools/wasm-build.sh && node tools/wasm-test.mjs hello c3-hello c6-hello c6-energy-scan c6-contiki c6-contiki-net c6-rpl-net panel",
+    "exit": 0
+  },
+  {
+    "check": "privacy",
+    "command": "node tools/check-evidence-privacy.mjs",
+    "exit": 0
+  },
+  {
+    "check": "bins",
+    "command": "cargo +1.99.0 build --release --bins",
+    "exit": 0
+  }
+]

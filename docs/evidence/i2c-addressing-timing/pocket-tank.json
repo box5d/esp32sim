@@ -1,0 +1,119 @@
+{
+  "base": "eec7b2c9923194ec0eb1e9dfa099b9b77aa939e3",
+  "main": {
+    "console_sha256": "c3776029dd98a1cd1ad148aa3cfdbd6639a49e465157214c2f1ca34ac5e2bbd5",
+    "console_bytes": 21394,
+    "core_instructions": [
+      4446180034,
+      5627653631
+    ],
+    "instructions": 10073833665,
+    "cycles": 7200000000,
+    "exceptions": 1006391,
+    "interrupts": 95179,
+    "per_source": [
+      "  core0 int2       1861  sources [79]",
+      "  core0 int3      29878  sources [57]",
+      "  core0 int8       5664  sources [42]",
+      "  core0 int9      25802  sources []",
+      "  core0 int13      1843  sources [67]",
+      "  core1 int0        149  sources [80]",
+      "  core1 int1      29982  sources [58]"
+    ]
+  },
+  "pr": {
+    "console_sha256": "880ce5621ddef2109e54978f10e698ee2efd954dd5b7504a8f144c9c25fe8100",
+    "console_bytes": 21468,
+    "core_instructions": [
+      4548165341,
+      6107970320
+    ],
+    "instructions": 10656135661,
+    "cycles": 7200000000,
+    "exceptions": 1047933,
+    "interrupts": 100129,
+    "per_source": [
+      "  core0 int2       7524  sources [79]",
+      "  core0 int3      29211  sources [57]",
+      "  core0 int8       5651  sources [42]",
+      "  core0 int9      25770  sources []",
+      "  core0 int13      1843  sources [67]",
+      "  core1 int0        148  sources [80]",
+      "  core1 int1      29982  sources [58]"
+    ]
+  },
+  "instant": {
+    "console_sha256": "c3776029dd98a1cd1ad148aa3cfdbd6639a49e465157214c2f1ca34ac5e2bbd5",
+    "console_bytes": 21394,
+    "core_instructions": [
+      4446180034,
+      5627653631
+    ],
+    "instructions": 10073833665,
+    "cycles": 7200000000,
+    "exceptions": 1006391,
+    "interrupts": 95179,
+    "per_source": [
+      "  core0 int2       1861  sources [79]",
+      "  core0 int3      29878  sources [57]",
+      "  core0 int8       5664  sources [42]",
+      "  core0 int9      25802  sources []",
+      "  core0 int13      1843  sources [67]",
+      "  core1 int0        149  sources [80]",
+      "  core1 int1      29982  sources [58]"
+    ]
+  },
+  "first_console_difference": {
+    "byte_offset": 8919,
+    "line": 171
+  },
+  "console_diff_sha256": "307da194d561eed7d740c909ba56e6c26015e5905425dd982a3f8551f25a1b13",
+  "console_diff_command": "diff -u --label main --label candidate main.console candidate.console",
+  "first_second_trace": {
+    "equal": true,
+    "events": 825,
+    "normalized_sha256": "7432fa53edecb13f6351a9ec7e1e70694dbb1f2d6d8c904bdd8a049a6fcd10c4",
+    "starts": {
+      "0x20 W": 3,
+      "0x15 W": 95,
+      "0x15 R": 94,
+      "0x34 W": 1,
+      "0x6b W": 11,
+      "0x6b R": 6,
+      "0x51 W": 2,
+      "0x51 R": 1
+    },
+    "candidate_checked_ack": 336,
+    "candidate_checked_nack": 0,
+    "command_lists": 112,
+    "timing_register_offsets": [
+      0,
+      56,
+      64,
+      68,
+      72,
+      76,
+      84
+    ],
+    "400khz_registers": [
+      49,
+      11803,
+      49,
+      49,
+      49,
+      49,
+      2097152
+    ],
+    "100khz_registers": [
+      199,
+      50278,
+      199,
+      199,
+      199,
+      199,
+      2097152
+    ]
+  },
+  "scope": "One 30-second correctness run per arm on base eec7b2c9; 1-second diagnostic traces (main eec7b2c9 vs candidate with pocket-trace.patch, --debug i2c, lines starting [i2c] after mapping read=false/true to W/R). No CPU measurements retained. instant is the candidate with instant-i2c-control: run() calls advance(u64::MAX) immediately after schedule().",
+  "candidate_controller_sha256": "1864aac258b80f21388d6fc0c004102068f6175c88857582bd6ee2dd37c884d1"
+}

@@ -15,6 +15,16 @@ panel with picture upload / webcam and speaker meter; bare: console only), the U
 UART0 consoles, an action box for the SDK's JSON protocol, and audio through WebAudio
 (click 🔇 once — browsers require a user gesture).
 
+The native server accepts browser WebSocket connections only from pages at
+`http://127.0.0.1:PORT` or `http://localhost:PORT`, using the server's port. It checks
+the browser's `Origin` header, which identifies the page's scheme, host and port.
+`ESP_EMU_WEB_BIND` overrides the listener address (for example, to reach the page
+from a phone on the LAN), and `ESP_EMU_WEB_ORIGIN` adds exact-match extra origins to
+the check (comma-separated; a client page served from another port, such as the
+CoreS3 Studio console page, uses this to open `ws://` to the emulator).
+Local native clients may omit `Origin`; the server treats those tools as trusted.
+See the [Origin check](../esp-soc/src/web.rs) for the implementation.
+
 The header shows emulated time, instructions, frames, and `real time` / `⚠ N% of real time` /
 resync count. The percentage is emulated seconds per wall second over the last second: a
 resynchronisation resets the lag but not this, so a run that cannot keep up stays visible. The audio buffer is adaptive: it starts at 60 ms and grows on underrun (up to
@@ -54,6 +64,7 @@ Text frames:
 | --- | --- |
 | `btn` | `pin`, `v` (1 = pressed) |
 | `knobpress` | `v` |
+| `reset` | none: the board's reset button. The page's Restart sends it to a native run; in the browser build Restart reloads the page, which is the same thing there. Honoured when the run can come back up: through the ROM, or for `--boot app` by entering the app again; ignored with `--no-reboot` |
 | `knob` | `d` (+1 cw / −1 ccw per detent); the emulator queues the quadrature edges 2 ms apart |
 | `serial` | `line`, optional `src` (`usb` default, `uart0`, `uart1`) — the line plus a newline into that console's RX |
 | `key` | `src`, `data` — bytes exactly as typed, no newline added: the page's console is a terminal (click it, type; Enter is CR, Backspace DEL, arrows and Ctrl-letters their escape/control codes, paste sends the text). The **Terminal** tab (`web/terminal.js`) is a real VT100 on UART0 — xterm.js (MIT; `tools/fetch-web-vendor.sh` puts it in `web/vendor/xterm`, pinned by hash — not committed), 100×30 — so cursor movement, colours and full-screen programs render; it encodes its own keys into the same `key` message |
@@ -61,9 +72,35 @@ Text frames:
 | `touch` | `x`, `y`, `down` (1 = touching); panel coordinates — a rotated panel view (the panel header's selector, `?rotate=`, or a manifest's `display_rotate`) maps its point back first |
 
 Binary frame type 3: camera picture, `w u16le, h u16le`, RGBA8888 — used by the picture
-upload and the webcam (4 fps). Frames up to 8 MB are accepted.
+upload and the webcam (4 fps). Frames up to 8 MB are accepted. Browsers that fragment
+outgoing WebSocket messages (mobile WebViews split a 76805-byte picture into ~32 KiB
+frames) are reassembled before the 8 MB limit applies, and with several tabs connected
+the newest complete picture wins.
 
 ## Sending is never blocking
 
 Each client has a writer thread with a bounded queue; when a tab is frozen or slow, frames
 are dropped for that client and the emulator keeps running at real time.
+
+## Use a webcam with the browser build
+
+Open `run.html?wasm`, select `waveshare-cam`, and load the ROM and camera firmware
+files in the firmware panel. Boot the firmware, then click **use webcam** in the
+camera panel. The sensor supplies black frames until the first host image arrives,
+so firmware can initialize before permission is granted. The browser asks for camera permission only after that click. Serve
+from localhost or HTTPS, as required by `getUserMedia`. Permission failure appears
+beside the button. **stop webcam** releases the camera and keeps its last image;
+leaving the page also releases it.
+
+The existing upload and webcam controls work with both native WebSocket and WASM
+runs. The worker sends type-3 camera RGBA through `esp32sim_in_bin`; the native server
+uses binary type 3. Both replace the same board image. Host updates arrive at 4 fps;
+the sensor repeats the latest image at its emulated capture cadence. The SCCB format,
+output size and sensor-array window apply to still images and live frames alike.
+See [live camera input](cli.md#live-camera-input) for supported formats and limits.
+
+Camera errors use `{"t":"camera-error","message":"..."}` and appear beside
+the source controls. Webcam tracks stop on emulator stop, boot failure, disconnect
+and page exit. Insecure origins (or `getUserMedia` being missing) explain that HTTPS
+or localhost is required and open the picture picker instead; a phone also offers the
+rear camera through the picker's `capture=environment` when taking a photo.

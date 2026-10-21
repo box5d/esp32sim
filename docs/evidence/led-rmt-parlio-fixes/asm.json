@@ -1,0 +1,677 @@
+{
+  "main": "ff64902a",
+  "parent": "schematik-engineering/esp32sim@15655505",
+  "head": "schematik-engineering/esp32sim@78d45a464202ec639c2c869b71aca386e64569cb",
+  "command": "cargo +1.99.0 build --release --bins; llvm-objdump -d --demangle --no-show-raw-insn <binary>",
+  "comparator": "asmcmp.py; instruction/branch addresses, alignment nops, adrp page offsets and equivalent call-target aliases normalized",
+  "comparator_sha256": "13547167454288caa39fd8590f8ab0acf5eb4e59162c8d260902041786b12a2e",
+  "coverage": "All three native CLI binaries contain the selected C3/C6/S3 functions and give the same selected-function results. Inlined functions (including Peripherals::write32, S3 next_deadline and devices accessors) are covered by callers; no independent symbol is claimed.",
+  "functions": [
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::read32",
+      "base_instructions": 114,
+      "head_instructions": 114,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::tick",
+      "base_instructions": 279,
+      "head_instructions": 279,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::write32",
+      "base_instructions": 56,
+      "head_instructions": 56,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+      "base_instructions": 200,
+      "head_instructions": 200,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus>::pending_work",
+      "base_instructions": 3062,
+      "head_instructions": 3062,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus>::periph_read",
+      "base_instructions": 190,
+      "head_instructions": 190,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus>::periph_write",
+      "base_instructions": 1660,
+      "head_instructions": 1676,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32c3-bus-SocBus-periph-write-part1.diff",
+        "asm/main-esp32c3-bus-SocBus-periph-write-part2.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::bus::SocBus>::tick_with_pins",
+      "base_instructions": 521,
+      "head_instructions": 448,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32c3-bus-SocBus-tick-with-pins.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "base_instructions": 299,
+      "head_instructions": 299,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c3::periph::Peripherals>::read32",
+      "base_instructions": 1142,
+      "head_instructions": 1142,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read32",
+      "base_instructions": 96,
+      "head_instructions": 96,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick",
+      "base_instructions": 2036,
+      "head_instructions": 1980,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32c6-bus-SocBus-as-emu-core-bus-Bus-tick.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write32",
+      "base_instructions": 48,
+      "head_instructions": 48,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+      "base_instructions": 290,
+      "head_instructions": 290,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus>::pending_work",
+      "base_instructions": 731,
+      "head_instructions": 731,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus>::periph_read",
+      "base_instructions": 225,
+      "head_instructions": 225,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::bus::SocBus>::periph_write",
+      "base_instructions": 1660,
+      "head_instructions": 1822,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32c6-bus-SocBus-periph-write-part1.diff",
+        "asm/main-esp32c6-bus-SocBus-periph-write-part2.diff",
+        "asm/main-esp32c6-bus-SocBus-periph-write-part3.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "base_instructions": 194,
+      "head_instructions": 229,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32c6-periph-Peripherals-as-esp-periph-mmio-Dispatch-tick-optional.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32c6::periph::Peripherals>::read32",
+      "base_instructions": 679,
+      "head_instructions": 683,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32c6-periph-Peripherals-read32.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::read32",
+      "base_instructions": 235,
+      "head_instructions": 235,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::tick",
+      "base_instructions": 26,
+      "head_instructions": 26,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::write32",
+      "base_instructions": 307,
+      "head_instructions": 314,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32s3-bus-SocBus-as-emu-core-bus-Bus-write32.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus>::periph_read",
+      "base_instructions": 808,
+      "head_instructions": 808,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus>::periph_write_inner",
+      "base_instructions": 1663,
+      "head_instructions": 1663,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32s3-bus-SocBus-periph-write-inner.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus>::read32_access::<false>",
+      "base_instructions": 128,
+      "head_instructions": 128,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus>::tick_impl",
+      "base_instructions": 3667,
+      "head_instructions": 3683,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32s3-bus-SocBus-tick-impl-part1.diff",
+        "asm/main-esp32s3-bus-SocBus-tick-impl-part2.diff",
+        "asm/main-esp32s3-bus-SocBus-tick-impl-part3.diff",
+        "asm/main-esp32s3-bus-SocBus-tick-impl-part4.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::bus::SocBus>::write32_access::<false>",
+      "base_instructions": 194,
+      "head_instructions": 201,
+      "status": "different",
+      "diffs": [
+        "asm/main-esp32s3-bus-SocBus-write32-access-false.diff"
+      ]
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp32s3::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "base_instructions": 312,
+      "head_instructions": 312,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::run",
+      "base_instructions": 4319,
+      "head_instructions": 4319,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::run_unmodeled::<false>",
+      "base_instructions": 1048,
+      "head_instructions": 1048,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::step_core",
+      "base_instructions": 463,
+      "head_instructions": 463,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run",
+      "base_instructions": 4325,
+      "head_instructions": 4325,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run_unmodeled::<false>",
+      "base_instructions": 1053,
+      "head_instructions": 1053,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::step_core",
+      "base_instructions": 465,
+      "head_instructions": 465,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::run_modeled",
+      "base_instructions": 3378,
+      "head_instructions": 3378,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::run_unmodeled::<false>",
+      "base_instructions": 3311,
+      "head_instructions": 3311,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::step_core",
+      "base_instructions": 990,
+      "head_instructions": 990,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c3::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "base_instructions": 37,
+      "head_instructions": 37,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c3::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "base_instructions": 90,
+      "head_instructions": 90,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "base_instructions": 37,
+      "head_instructions": 37,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "base_instructions": 87,
+      "head_instructions": 87,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32s3::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "base_instructions": 37,
+      "head_instructions": 37,
+      "status": "identical"
+    },
+    {
+      "base": "ff64902a",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32s3::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "base_instructions": 35,
+      "head_instructions": 35,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::read32",
+      "base_instructions": 114,
+      "head_instructions": 114,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::tick",
+      "base_instructions": 279,
+      "head_instructions": 279,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus as emu_core::bus::Bus>::write32",
+      "base_instructions": 56,
+      "head_instructions": 56,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+      "base_instructions": 200,
+      "head_instructions": 200,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus>::pending_work",
+      "base_instructions": 3062,
+      "head_instructions": 3062,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus>::periph_read",
+      "base_instructions": 190,
+      "head_instructions": 190,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus>::periph_write",
+      "base_instructions": 1676,
+      "head_instructions": 1676,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::bus::SocBus>::tick_with_pins",
+      "base_instructions": 521,
+      "head_instructions": 448,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32c3-bus-SocBus-tick-with-pins.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "base_instructions": 299,
+      "head_instructions": 299,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c3::periph::Peripherals>::read32",
+      "base_instructions": 1142,
+      "head_instructions": 1142,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::read32",
+      "base_instructions": 96,
+      "head_instructions": 96,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::tick",
+      "base_instructions": 2036,
+      "head_instructions": 1980,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32c6-bus-SocBus-as-emu-core-bus-Bus-tick.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus as emu_core::bus::Bus>::write32",
+      "base_instructions": 48,
+      "head_instructions": 48,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus as esp_soc::soc::SocBus>::next_deadline",
+      "base_instructions": 290,
+      "head_instructions": 290,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus>::pending_work",
+      "base_instructions": 731,
+      "head_instructions": 731,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus>::periph_read",
+      "base_instructions": 225,
+      "head_instructions": 225,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::bus::SocBus>::periph_write",
+      "base_instructions": 1747,
+      "head_instructions": 1822,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32c6-bus-SocBus-periph-write-part1.diff",
+        "asm/parent-esp32c6-bus-SocBus-periph-write-part2.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "base_instructions": 227,
+      "head_instructions": 229,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32c6-periph-Peripherals-as-esp-periph-mmio-Dispatch-tick-optional.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32c6::periph::Peripherals>::read32",
+      "base_instructions": 677,
+      "head_instructions": 683,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32c6-periph-Peripherals-read32.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::read32",
+      "base_instructions": 235,
+      "head_instructions": 235,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::tick",
+      "base_instructions": 26,
+      "head_instructions": 26,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus as emu_core::bus::Bus>::write32",
+      "base_instructions": 307,
+      "head_instructions": 314,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32s3-bus-SocBus-as-emu-core-bus-Bus-write32.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus>::periph_read",
+      "base_instructions": 808,
+      "head_instructions": 808,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus>::periph_write_inner",
+      "base_instructions": 1663,
+      "head_instructions": 1663,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32s3-bus-SocBus-periph-write-inner.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus>::read32_access::<false>",
+      "base_instructions": 128,
+      "head_instructions": 128,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus>::tick_impl",
+      "base_instructions": 3743,
+      "head_instructions": 3683,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32s3-bus-SocBus-tick-impl.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::bus::SocBus>::write32_access::<false>",
+      "base_instructions": 194,
+      "head_instructions": 201,
+      "status": "different",
+      "diffs": [
+        "asm/parent-esp32s3-bus-SocBus-write32-access-false.diff"
+      ]
+    },
+    {
+      "base": "15655505",
+      "function": "<esp32s3::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional",
+      "base_instructions": 312,
+      "head_instructions": 312,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::run",
+      "base_instructions": 4319,
+      "head_instructions": 4319,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::run_unmodeled::<false>",
+      "base_instructions": 1048,
+      "head_instructions": 1048,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32c3::soc::C3>>::step_core",
+      "base_instructions": 463,
+      "head_instructions": 463,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run",
+      "base_instructions": 4325,
+      "head_instructions": 4325,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::run_unmodeled::<false>",
+      "base_instructions": 1053,
+      "head_instructions": 1053,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32c6::soc::C6>>::step_core",
+      "base_instructions": 465,
+      "head_instructions": 465,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::run_modeled",
+      "base_instructions": 3378,
+      "head_instructions": 3378,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::run_unmodeled::<false>",
+      "base_instructions": 3311,
+      "head_instructions": 3311,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::Machine<esp32s3::soc::S3>>::step_core",
+      "base_instructions": 990,
+      "head_instructions": 990,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c3::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "base_instructions": 37,
+      "head_instructions": 37,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c3::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "base_instructions": 90,
+      "head_instructions": 90,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "base_instructions": 37,
+      "head_instructions": 37,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32c6::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "base_instructions": 87,
+      "head_instructions": 87,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32s3::bus::SocBus> as emu_core::bus::Bus>::read32",
+      "base_instructions": 37,
+      "head_instructions": 37,
+      "status": "identical"
+    },
+    {
+      "base": "15655505",
+      "function": "<esp_soc::machine::modeled::RecordingBus<esp32s3::bus::SocBus> as emu_core::bus::Bus>::write32",
+      "base_instructions": 35,
+      "head_instructions": 35,
+      "status": "identical"
+    }
+  ]
+}

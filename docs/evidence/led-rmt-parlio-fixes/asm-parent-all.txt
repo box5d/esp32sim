@@ -1,0 +1,31 @@
+DIFF    414    421  <esp32c3::bus::SocBus>::sha_dma_write
+DIFF    521    448  <esp32c3::bus::SocBus>::tick_with_pins
+DIFF   2036   1980  <esp32c6::bus::SocBus as emu_core::bus::Bus>::tick
+DIFF    212    148  <esp32c6::bus::SocBus>::deliver_board_events
+DIFF   1747   1822  <esp32c6::bus::SocBus>::periph_write
+DIFF    400    157  <esp32c6::bus::SocBus>::sha_dma_write
+DIFF    244    166  <esp32c6::bus::SocBus>::spi2_dma_tx
+DIFF    259    299  <esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::refresh_optional
+DIFF    227    229  <esp32c6::periph::Peripherals as esp_periph::mmio::Dispatch>::tick_optional
+DIFF   1592   1586  <esp32c6::periph::Peripherals>::new
+DIFF    677    683  <esp32c6::periph::Peripherals>::read32
+DIFF    307    314  <esp32s3::bus::SocBus as emu_core::bus::Bus>::write32
+DIFF   1663   1663  <esp32s3::bus::SocBus>::periph_write_inner
+DIFF   3743   3683  <esp32s3::bus::SocBus>::tick_impl
+DIFF    194    201  <esp32s3::bus::SocBus>::write32_access::<false>
+DIFF   2686   2686  <esp32s3::periph::Peripherals>::new
+DIFF    286    286  <esp_periph::rmt::Rmt>::tick
+DIFF     98     98  <esp_periph::rmt_compact::RmtCompact>::new
+DIFF   1504   1504  <esp_soc::machine::Machine<esp32c3::soc::C3>>::reboot
+DIFF    385    385  <esp_soc::machine::Machine<esp32c3::soc::C3>>::refresh_modeled_core_states
+DIFF   1278   1278  <esp_soc::machine::Machine<esp32c6::soc::C6>>::reboot
+DIFF    385    385  <esp_soc::machine::Machine<esp32c6::soc::C6>>::refresh_modeled_core_states
+DIFF   1405   1405  <esp_soc::machine::Machine<esp32s3::soc::S3>>::reboot
+DIFF     18     39  core::ptr::drop_glue::<alloc::boxed::Box<esp32c6::periph::OptionalPeripherals>>
+DIFF     58     79  core::ptr::drop_glue::<esp32c6::periph::OptionalPeripherals>
+DIFF    704    693  core::ptr::drop_glue::<esp32c6::periph::Peripherals>
+DIFF    736    736  core::ptr::drop_glue::<esp32s3::periph::Peripherals>
+DIFF     48     56  core::ptr::drop_glue::<esp_periph::rmt::Rmt>
+DIFF     66     74  core::ptr::drop_glue::<esp_periph::rmt_compact::RmtCompact>
+DIFF    207    226  esp_periph::gdma::transmit::gather_out::<esp32s3::bus::dma::CryptoDmaOut>
+identical=1932 different=30 only_main=15 only_branch=26

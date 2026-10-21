@@ -23,7 +23,22 @@ impl Soc for S3 {
     const IDLE_CHUNK: u64 = 64 * 8;
     const ROM_DATA_TABLE: &'static [&'static str] = &["_data_start"];
     fn new_core(i: usize) -> Cpu { Cpu::new(if i == 0 { 0xCDCD } else { 0xABAB }) }
+    fn new_core_with_bus(i: usize, bus: &SocBus) -> Cpu {
+        let mut core = Self::new_core(i);
+        core.fetch_cache = bus.fetch_cache.clone();
+        core
+    }
+    fn function_hooks(bus: &SocBus) -> &[u32] { &bus.ble.hooks }
+    fn function_hook(core: &mut Cpu, bus: &mut SocBus) -> bool { crate::ble::intercept(core, bus) }
     fn reset_core(c: &mut Cpu, i: usize) { Cpu::reset(c); if i == 1 { c.prid = 0xABAB; } }
+    #[inline]
+    fn reset_core_with_bus(c: &mut Cpu, bus: &mut SocBus, i: usize) {
+        Self::reset_core(c, i);
+        // Reset clears external levels and edge history even if no source changed.
+        // Force the existing routing refresh past its unchanged-source filter once.
+        bus.irq_dirty = true;
+        bus.periph.intmatrix_dirty = true;
+    }
     fn boot_core(c: &mut Cpu, entry: u32) {
         Cpu::reset(c);
         c.pc = entry;
@@ -43,10 +58,40 @@ impl Soc for S3 {
 }
 
 impl esp_soc::SocBus for SocBus {
+    fn enable_ble(&mut self, elf: &esp_soc::elf::Elf) -> Result<(), String> { self.ble.enable(&elf.by_name, elf.symbol_sizes.get("esp_bt_controller_init").copied().unwrap_or(0), &<Self as esp_soc::ble::vhci::VhciBus>::abi()) }
+    fn ble_enabled(&self) -> bool { !self.ble.hooks.is_empty() }
+    fn ble_pending_commands(&self) -> usize { self.ble.session.pending_commands() }
+    fn ble_command(&mut self, command: &str) -> Result<(), String> { self.ble.command(command, self.cycles, periph::CPU_HZ) }
+    fn attach_wifi(&mut self, cfg: esp_soc::wifi::ApConfig, nat: Option<esp_soc::nat::Nat>) -> Result<(), String> {
+        self.flush_ticks();
+        self.periph.wifi.link.attach_new(cfg, nat, &self.debug);
+        self.refresh_tick_budget();
+        Ok(())
+    }
+    fn set_ethernet_relay(&mut self, enabled: bool) -> Result<(), String> {
+        self.flush_ticks();
+        self.periph.wifi.link.set_relay(enabled);
+        Ok(())
+    }
+    fn take_ethernet_frames(&mut self) -> Vec<Vec<u8>> {
+        self.flush_ticks();
+        self.periph.wifi.link.take_relay_frames()
+    }
+    fn receive_ethernet_frame(&mut self, frame: &[u8]) -> Result<(), String> {
+        self.flush_ticks();
+        self.periph.wifi.link.receive_relay_frame(frame)
+    }
     fn cycles(&self) -> u64 { self.cycles }
     fn next_deadline(&self) -> Option<u64> { Some(SocBus::next_deadline(self)) }
     fn irq_dirty(&mut self) -> &mut bool { &mut self.irq_dirty }
+    // Only the WASM JIT helpers currently stop before deferred device accesses.
+    // `ESP32SIM_VQ_NATIVE` opts a native run in; it is only sound with `--no-jit`.
+    fn can_defer(&self) -> bool { cfg!(target_arch = "wasm32") || std::env::var_os("ESP32SIM_VQ_NATIVE").is_some() }
+    fn set_defer(&mut self, on: bool) { self.defer_mmio = on; self.mmio_deferred = false; }
+    fn take_deferred(&mut self) -> bool { std::mem::take(&mut self.mmio_deferred) }
     fn refresh_irq(&mut self) -> bool {
+        // Inputs are sampled at refresh boundaries. Clearing and reasserting a source
+        // between samples cannot create a second edge at the CPU.
         let dirty = self.periph.lines_dirty() || self.periph.intmatrix_dirty;
         self.periph.intmatrix_dirty = false;
         dirty
@@ -59,16 +104,18 @@ impl esp_soc::SocBus for SocBus {
     fn misc(&mut self) -> &mut Misc { &mut self.periph.misc }
     fn load_bytes(&mut self, addr: u32, data: &[u8]) -> Result<(), String> { SocBus::load_bytes(self, addr, data) }
     fn write_flash(&mut self, offset: usize, data: &[u8]) -> Result<(), String> {
-        if offset + data.len() > self.flash.len() { return Err("flash image too large".into()); }
-        self.flash[offset..offset + data.len()].copy_from_slice(data);
+        let target = self.flash.get_mut(offset..).and_then(|tail| tail.get_mut(..data.len()))
+            .ok_or("flash image too large")?;
+        target.copy_from_slice(data);
         self.note_written(SRC_FLASH, offset, data.len());
         Ok(())
     }
     /// Copy IRAM/DRAM segments, map IROM/DROM through the MMU, as the 2nd-stage bootloader would.
     fn boot_app(&mut self, app_off: usize) -> Result<u32, String> {
+        let image = self.flash.get(app_off..).ok_or("app offset beyond flash")?;
+        let img = esp_soc::image::parse(image)?;
         self.periph.system.preset_after_bootloader();
         self.periph.rtc.preset_after_bootloader();
-        let img = esp_soc::image::parse(&self.flash[app_off..])?;
         for s in &img.segments {
             let start = app_off + s.file_off as usize;
             let end = start + s.len as usize;
@@ -77,6 +124,10 @@ impl esp_soc::SocBus for SocBus {
             if flash_mapped {
                 // esptool aligns segments so vaddr and flash offset agree modulo 64 KiB
                 if (s.load_addr & 0xffff) != (start as u32 & 0xffff) { return Err(format!("segment {:#x} not page-aligned with flash offset {:#x}", s.load_addr, start)); }
+                let window_end = if s.load_addr < DBUS_HIGH { DBUS_HIGH } else { IBUS_HIGH };
+                if s.load_addr.checked_add(s.len).is_none_or(|end| end > window_end) {
+                    return Err("segment beyond the flash window".into());
+                }
                 let first_page = (start as u32) >> 16;
                 let npages = ((s.load_addr & 0xffff) + s.len + 0xffff) >> 16;
                 for i in 0..npages {
@@ -94,13 +145,24 @@ impl esp_soc::SocBus for SocBus {
     /// Digital peripherals re-initialised, cache MMU invalid; SRAM, RTC memories, efuses and the
     /// RTC-domain registers survive, as on silicon. Returns the cause the ROM will report.
     fn reboot(&mut self, mac: [u8; 6]) -> u32 {
+        self.ble.restore_flash(&mut self.flash);
+        self.ble.reset();
         self.flush_ticks();
+        self.cancel_spi2_timing();
         let cause = self.periph.rtc.reset_cause;
-        let old = std::mem::replace(&mut self.periph, periph::Peripherals::new(mac));
+        let mut old = std::mem::replace(&mut self.periph, periph::Peripherals::new(mac));
         let p = &mut self.periph;
+        // The host AP and network survive a guest reboot; only the MAC and relay queues reset.
+        p.wifi.link = old.wifi.link.surviving_reboot();
+        // Host camera cadence and logging survive; guest capture state resets.
+        p.lcd_cam.frame_cycles = old.lcd_cam.frame_cycles;
         p.efuse = old.efuse;
+        p.i2s0.keep_rx_input(&mut old.i2s0); p.i2s1.keep_rx_input(&mut old.i2s1);
+        p.rtc.analog = old.rtc.analog;
+        p.rtc.analog.set_stream_clock_offset(self.cycles); // ticks flushed; the new peripheral clock starts at zero
+        p.gpio.restore_external(&old.gpio);
         p.gpio.strap = old.gpio.strap;
-        p.misc.log_unknown = old.misc.log_unknown; p.spi1.log = old.spi1.log;
+        p.misc.log_unknown = old.misc.log_unknown;
         p.spi0.jedec = old.spi0.jedec; p.spi1.jedec = old.spi1.jedec;   // the flash chip is not reset: its ID keeps the --flash-mb capacity
         p.rtc.ram = old.rtc.ram; p.rtc.slow_ticks = old.rtc.slow_ticks;
         p.rtc.ram.write(0x38, cause | (cause << 6));
@@ -108,12 +170,16 @@ impl esp_soc::SocBus for SocBus {
         p.i2s0.pcm = old.i2s0.pcm; p.i2s0.frames_out = old.i2s0.frames_out; p.i2s1.pcm = old.i2s1.pcm; p.i2s1.frames_out = old.i2s1.frames_out;   // keep the captured audio continuous
         self.mmu = [MMU_INVALID; MMU_ENTRIES];
         self.invalidate_tlb();
+        self.reset_approximate_cache();
         self.attach_board_devices();
         self.refresh_tick_budget();
         self.irq_dirty = true;
+        for area in self.debug.iter() { esp_periph::Dispatch::debug(&mut self.periph, area, true); }
+        self.periph.misc.log_all = self.debug.has("mmio");
         cause
     }
     fn sw_reset(&self) -> bool { self.periph.rtc.sw_reset }
+    fn request_reset(&mut self, cause: u32) { self.periph.rtc.sw_reset = true; self.periph.rtc.reset_cause = cause; }
     fn reset_cause(&self) -> u32 { self.periph.rtc.reset_cause }
     fn last_fault(&self) -> Option<(u32, bool)> { self.last_fault }
     fn console_take(&mut self) -> [Vec<u8>; 4] {
@@ -130,10 +196,24 @@ impl esp_soc::SocBus for SocBus {
         u.host_input(data);
         self.irq_dirty |= before != u.irq();
     }
+    fn analog_set(&mut self, pin: u8, src: esp_periph::AnalogSource) {
+        let offset = self.peripheral_clock_offset();
+        self.periph.rtc.analog.set(pin, src);
+        self.periph.rtc.analog.set_stream_clock_offset(offset);
+    }
+    fn adc_set_raw(&mut self, pin: u8, raw: u16) -> bool { (1..=20).contains(&pin) && self.periph.rtc.analog.set_raw(pin, raw) }
+    fn adc_observation(&self, pin: u8) -> Option<esp_periph::AdcObservation> {
+        ((1..=20).contains(&pin)).then(|| self.periph.rtc.analog.observation(pin))
+    }
+    fn gpio_release_input(&mut self, pin: u8) {
+        self.irq_dirty |= esp_soc::gpio::release_and_report(&mut self.periph.gpio, &mut self.gpio_events, self.cycles, pin);
+        self.refresh_tick_budget();
+    }
     fn gpio_set_input(&mut self, pin: u8, level: bool) {
-        let old_input = self.periph.gpio.input;
-        self.periph.gpio.set_input(pin, level);
-        self.irq_dirty |= old_input != self.periph.gpio.input;
+        self.irq_dirty |= self.periph.gpio.set_input(pin, level);
+        // Host edges queue PCNT work without going through the MMIO refresh hook.
+        // Recompute the threshold without dropping cycles already pending.
+        self.refresh_tick_budget();
         if let Some(ev) = &mut self.gpio_events { ev.push((self.cycles, pin, level)); }
     }
     fn set_flash_size(&mut self, bytes: usize) {
@@ -148,14 +228,11 @@ impl esp_soc::SocBus for SocBus {
         let p = &self.periph;
         let mut s = format!("[emu] i2s frames out: {} (i2s0 @ {} Hz) {} (i2s1 @ {} Hz)\n", p.i2s0.frames_out, p.i2s0.sample_rate, p.i2s1.frames_out, p.i2s1.sample_rate);
         { let r = self.board.report(); if !r.is_empty() { s += &r; s += "\n"; } }
-        { let w = &p.wifi;
-          if w.tx_frames + w.rx_frames > 0 { s += &format!("[emu] wifi: {} frames sent by the station, {} received ({} dropped: no descriptor){}\n", w.tx_frames, w.rx_frames, w.rx_dropped, w.ap.as_ref().map_or(String::new(), |ap| format!("; AP: {} beacons, {} probe responses, {} data frames from the station, state {:?}", ap.stats.0, ap.stats.1, ap.stats.2, ap.state))); }
-          if let Some(n) = &w.net { s += &format!("[emu] net: {} DHCP leases, {} ARP replies, {} DNS answers, {} NTP answers, {} TCP refused, {} pings, {} frames ignored\n", n.dhcp_acks, n.arp_replies, n.dns_answers, n.ntp_answers, n.tcp_rejects, n.pings, n.unhandled);
-            if let Some(t) = &n.nat { s += &format!("[emu] nat: {} TCP connections ({} failed), {} UDP flows, {} bytes out, {} bytes in\n", t.tcp_opened, t.tcp_refused, t.udp_flows, t.bytes_to_host, t.bytes_to_guest); } } }
+        { let w = p.wifi.link.report(); if !w.is_empty() { s += &w; s += "\n"; } }
         { let (a, sh, r) = (&p.aes, &p.sha, &p.rsa);
           if a.blocks + sh.blocks + r.ops > 0 { s += &format!("[emu] crypto: {} AES blocks, {} SHA blocks, {} RSA/MPI operations\n", a.blocks, sh.blocks, r.ops); } }
         if p.lcd_cam.lcd_frames > 0 { s += &format!("[emu] lcd: {} RGB frames\n", p.lcd_cam.lcd_frames); }
-        if p.lcd_cam.frames + p.lcd_cam.dropped > 0 { s += &format!("[emu] camera: {} frames delivered, {} dropped (no DMA/no picture)\n", p.lcd_cam.frames, p.lcd_cam.dropped); }
+        if p.lcd_cam.frames + p.lcd_cam.dropped > 0 { s += &format!("[emu] camera: {} VSYNCs, {} frames with dropped data\n", p.lcd_cam.frames, p.lcd_cam.dropped); }
         if p.rmt.tx_count > 0 { s += &format!("[emu] rmt tx {}\n", p.rmt.tx_count); }
         s.trim_end().to_string()
     }
@@ -167,8 +244,26 @@ impl esp_soc::SocBus for SocBus {
     fn observe_gpio(&mut self, on: bool) { self.gpio_events = if on { Some(Vec::new()) } else { None }; }
     fn take_gpio_events(&mut self) -> Vec<(u64, u8, bool)> { self.gpio_events.as_mut().map(std::mem::take).unwrap_or_default() }
     fn gpio_input(&self) -> u64 { self.periph.gpio.input }
+    fn gpio_state(&self, pin: u8) -> Option<esp_soc::GpioState> {
+        if pin > 48 || (22..=25).contains(&pin) { return None; }
+        let mux = self.periph.io_mux.read(4 + u32::from(pin) * 4);
+        Some(esp_soc::GpioState::new(
+            self.periph.gpio.out & (1u64 << pin) != 0,
+            self.periph.gpio.enable & (1u64 << pin) != 0,
+            mux & (1 << 8) != 0,
+            mux & (1 << 7) != 0,
+        ))
+    }
+    fn pwm_output(&self, pin: u8) -> Option<(f64, u32)> { self.periph.ledc.output(&self.periph.gpio, pin).or_else(|| self.periph.mcpwm.iter().find_map(|pwm| pwm.output(&self.periph.gpio, pin))) }
+
     fn board(&mut self) -> &mut dyn BoardModel { &mut *self.board }
     fn board_ref(&self) -> &dyn BoardModel { &*self.board }
+    fn i2s_input(&mut self, port: usize) -> Option<&mut esp_periph::i2s::PcmInput> { match port { 0 => Some(self.periph.i2s0.rx_input()), 1 => Some(self.periph.i2s1.rx_input()), _ => None } }
+    fn pcm_sources(&self) -> Option<&esp_periph::i2s::PcmSources> { self.periph.i2s0.pcm_bank_ref() }
+    fn attach_pcm_sources(&mut self) -> Option<&mut esp_periph::i2s::PcmSources> {
+        self.flush_ticks();
+        Some(esp_soc::soc::attach_pcm_sources(self.periph.i2s0.pcm_bank(), self.cycles, periph::CPU_HZ))
+    }
     fn audio(&self) -> (&[i16], u32) { let a = self.periph.audio(); (&a.pcm, a.sample_rate) }
     fn camera_frames(&self) -> u64 { self.periph.lcd_cam.frames }
     fn irq_sources_of(&self, core: usize, line: u32) -> Vec<usize> { (0..NUM_SOURCES).filter(|&s| self.periph.intmatrix.map[core][s] == line).collect() }
@@ -177,6 +272,31 @@ impl esp_soc::SocBus for SocBus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matrix_routes_sampled_edges_and_nmi_to_machine_cores() {
+        for irq in [10, 14, 22, 28, 30] {
+            let mut m = Machine::new([0; 6], SocBus::new(8 << 20, 2 << 20, [0; 6]));
+            m.bus.periph.intmatrix.map[0][periph::SRC_FROM_CPU0] = irq;
+            m.bus.periph.intmatrix_dirty = true;
+            m.cores[0].ps = if irq == 14 { ps::EXCM | 15 } else { 0 };
+            m.cores[0].intenable = if irq == 14 { 0 } else { 1 << irq };
+            m.sync_irq();
+            m.bus.periph.system.write(0x30, 1);
+            m.sync_irq();
+            assert_ne!(m.cores[0].check_interrupts_pending() & (1 << irq), 0);
+            assert!(m.cores[0].check_interrupts().is_some());
+            // Acknowledgment while the source remains high cannot manufacture another edge.
+            m.cores[0].interrupt &= !(1 << irq);
+            m.sync_irq();
+            assert_eq!(m.cores[0].interrupt & (1 << irq), 0);
+            m.bus.periph.system.write(0x30, 0);
+            m.sync_irq();
+            m.bus.periph.system.write(0x30, 1);
+            m.sync_irq();
+            assert_ne!(m.cores[0].interrupt & (1 << irq), 0);
+        }
+    }
 
     #[test]
     fn primary_core_is_not_controlled_by_core_one_reset_registers() {

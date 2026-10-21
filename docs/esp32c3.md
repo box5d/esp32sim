@@ -99,7 +99,7 @@ python -m espefuse --port /dev/cu.usbmodem1101 summary          # the revision f
 
 The C3 is in the WebAssembly build too — pick board `esp32c3` on the page, or open it directly:
 
-    https://joakimeriksson.github.io/esp32sim/run.html?fw=c3-hello
+    https://mikroverk.github.io/esp32sim/run.html?fw=c3-hello
 
 Console-only, real time, from the same mask ROM and binaries. See [wasm.md](wasm.md).
 
@@ -110,7 +110,7 @@ Console-only, real time, from the same mask ROM and binaries. See [wasm.md](wasm
 | CPU | RV32IMC, machine mode, `mstatus`/`mtvec`/`mepc`/`mcause`/`mtval`, vectored traps, WFI |
 | Interrupts | the C3 interrupt matrix: 62 sources → 31 lines, per-line priority and threshold, level and edge, plus the four `FROM_CPU` software interrupts |
 | Memory | 400 KB SRAM (SRAM1 dual-mapped IRAM/DRAM), mask ROM, RTC slow RAM, 8 MB flash cache windows through a 128-entry MMU |
-| Peripherals | UART0/1, USB-Serial/JTAG, systimer, TIMG0/1 + WDTs, GPIO, RTC_CNTL, efuse, SPI0/1 flash controller, GDMA, SHA/AES/RSA, cache controller, hardware RNG |
+| Peripherals | UART0/1, USB-Serial/JTAG, systimer, TIMG0/1, GPIO, RTC_CNTL with RTC watchdog reset stages, efuse, SPI0/1 flash controller, GDMA, SHA/AES/RSA, cache controller, hardware RNG |
 
 Peripheral models are **shared with the S3 through the `esp-periph` crate** wherever the IP is
 identical (which is most of it — same UART, same systimer, same timer groups, same USB-Serial/JTAG,
@@ -127,18 +127,40 @@ $OD -d examples/hello_world-c3/build/hello_world.elf > /tmp/app.dis
 RISCV_DIS_FILES=/tmp/rom.dis:/tmp/app.dis cargo test -p riscv-rv32 --release
 ```
 
+LEDC models low-speed timers, static duty latching and GPIO-matrix frequency/duty observation through `--pwm PIN`. Hardware fades and sampled PWM edges are not modelled.
+
+## Wi-Fi station
+
+`--wifi ssid=esp32sim` attaches the shared virtual AP and network. Add
+`,psk=esp32sim-pass` for WPA2-PSK. Native runs use the existing NAT by default;
+`--net none` keeps only the virtual subnet. The browser supports the same AP and
+subnet, with optional host Ethernet transport through `SocBus` and the WASM ABI.
+
+The C3 adapter models the MAC at `0x60033000`, 12-bit DMA descriptor lengths,
+48-byte RX metadata, analog register handshakes and AES through the C3 GDMA
+register layout. It reuses `esp-soc` for association, WPA2, DHCP, DNS, SNTP and NAT.
+The radio and calibration results are idealized; this is one station on an open
+or WPA2 AP, without Bluetooth, WPA3, roaming or RF simulation.
+
+Arduino-ESP32 3.3.8 connects and receives an HTTP body through NAT with both open
+and WPA2 configurations. See the [validation receipt](evidence/ethernet-c3-2026-10-02/README.md)
+for firmware hashes, commands and limits. No physical C3 Wi-Fi comparison was run. In CI the
+`wifi_station_c3` golden runs the committed build of `examples/c6-wifi-station` for the C3
+(`web/wasm/fw/public/c3-wifi-*`): scan, WPA2, DHCP and five pings, with the console, the WiFi
+counts and the interrupt count pinned.
+
 ## Not there yet
 
+- **Watchdogs.** The [timer-group watchdogs](../esp-periph/src/timg.rs) are register RAM and never fire. The [RTC watchdog](../esp-periph/src/rtc_cntl.rs) supports reset stages, feed and write protection at the C3 register offsets; its interrupt stage sets raw status but does not interrupt the CPU.
 - **`--boot app`** (skipping the ROM and bootloader). The C3 has one 128-entry MMU table shared by
   the data and instruction buses, and software keeps their page ranges disjoint; a direct app boot
   needs the bootloader's split, which is not modelled. The flag fails with that message.
-- **WiFi/BLE** — nothing of the C3 radio is modelled. (The S3's blob-level WiFi work does not
-  carry over: different MAC, and the C3's is not the one that was reverse-engineered.)
+- **Bluetooth** is not modelled.
 - **No board yet.** The C3 target is a bare module (`NoBoard`): console only. `BoardModel` lives
   in `esp-soc` now, so a C3 board is an `impl BoardModel` plus its devices; nothing else changes.
 - (superseded) `BoardModel` is an S3 concept
   today; a C3 board would need it lifted out.
-- **Peripherals on demand**: I2C, SPI2 master, LEDC, RMT, ADC, TWAI. Each shows up as an unknown
+- **Peripherals on demand**: I2C, SPI2 master, RMT, ADC, TWAI. Each shows up as an unknown
   register with `--log-periph` the moment a firmware wants it.
 - **`Saved PC`** on a non-power-on reset: the ROM reads a PC the previous reset stashed in RTC
   memory, which the emulator does not write.

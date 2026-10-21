@@ -1,0 +1,712 @@
++mov	x23, x20
++mov	x20, x27
++orr	w2, w2, #0x40000000
++mov	x0, x28
++ldr	w27, [sp, #0x108]
++mov	x1, x27
++bl	<<esp32s3::bus::SocBus>::write32_access::<false>>
++mov	w8, #0xff
++bics	wzr, w8, w0
++b.ne	<<esp32s3::bus::SocBus>::tick_impl>
++str	wzr, [sp, #0x130]
++mov	w12, #0x0
++ldr	w8, [sp, #0xd4]
++orr	w8, w8, #0x3
++str	w8, [sp, #0xd4]
++str	w27, [sp, #0x3c]
++ldp	w14, w13, [sp, #0x80]
++mov	x27, x20
++mov	x20, x23
++mov	x23, x22
++ldr	x22, [sp, #0x160]
++ldr	w8, [sp, #0x158]
++ldr	w9, [sp, #0xfc]
++cmp	w8, w9
+ b.lo	<<esp32s3::bus::SocBus>::tick_impl>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+@@ -1928,5 +1969,5 @@
+
+ cmp	w19, w8
+ b.hi	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w8, [sp, #0x158]
++ldr	w8, [sp, #0x150]
+ add	w1, w8, w20
+ mov	x0, x28
+@@ -1934,5 +1975,5 @@
+
+ tbnz	w0, #0x0, <<esp32s3::bus::SocBus>::tick_impl>
+ lsr	x2, x0, #32
+-ldr	w8, [sp, #0x140]
++ldr	w8, [sp, #0x138]
+ add	w1, w8, w20
+ mov	x0, x28
+@@ -1943,71 +1984,66 @@
+
+ b.eq	<<esp32s3::bus::SocBus>::tick_impl>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	w9, #0xfff
+-movk	w9, #0x3f00, lsl #16
+-ldr	x10, [sp, #0x98]
+-and	w9, w10, w9
+-orr	w2, w9, w19, lsl #12
+-ldr	w9, [sp, #0xc0]
+-cmp	w19, w9
+-b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-cbnz	w8, <<esp32s3::bus::SocBus>::tick_impl>
++ldr	w8, [sp, #0x130]
++ldr	w10, [sp, #0x90]
++cmp	w8, w10
++b.ne	<<esp32s3::bus::SocBus>::tick_impl>
++mov	w8, #0xfff
++movk	w8, #0x3f00, lsl #16
++ldr	x9, [sp, #0x50]
++and	w8, w9, w8
++orr	w2, w8, w10, lsl #12
+ mov	x0, x28
+-ldr	w1, [sp, #0x130]
++ldr	w1, [sp, #0x108]
+ bl	<<esp32s3::bus::SocBus>::write32_access::<false>>
+ mov	w8, #0xff
+ bics	wzr, w8, w0
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	w19, #0x0
+-orr	w26, w26, #0x1
+-ldr	w8, [sp, #0xfc]
+-cmp	w24, w8
++str	wzr, [sp, #0x130]
++ldr	w8, [sp, #0xd4]
++orr	w8, w8, #0x1
++str	w8, [sp, #0xd4]
++ldr	w12, [sp, #0xb0]
++ldp	w14, w13, [sp, #0x80]
++ldr	w8, [sp, #0x158]
++ldr	w9, [sp, #0xfc]
++cmp	w8, w9
+ b.lo	<<esp32s3::bus::SocBus>::tick_impl>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	x25, x23
+-mov	x23, x20
+-mov	x20, x27
+-orr	w2, w2, #0x40000000
++ldr	w21, [sp, #0x108]
++ldr	w12, [sp, #0xb0]
++ldp	w14, w13, [sp, #0x80]
++ldr	w8, [sp, #0x158]
++ldr	w9, [sp, #0xfc]
++cmp	w8, w9
++b.lo	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w8, [sp, #0x94]
++tbz	w8, #0x2, <<esp32s3::bus::SocBus>::tick_impl>
++mov	x19, x12
++and	w2, w20, #0x7fffffff
+ mov	x0, x28
+-ldr	w27, [sp, #0x130]
+-mov	x1, x27
++ldr	w1, [sp, #0xd0]
+ bl	<<esp32s3::bus::SocBus>::write32_access::<false>>
++ldp	w14, w13, [sp, #0x80]
++mov	x12, x19
++ldr	w19, [sp, #0xac]
+ mov	w8, #0xff
+ bics	wzr, w8, w0
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	w19, #0x0
+-str	wzr, [sp, #0x74]
+-orr	w26, w26, #0x3
+-str	w27, [sp, #0xac]
+-mov	x27, x20
+-mov	x20, x23
+-mov	x23, x25
+-ldr	w25, [sp, #0xb4]
+-ldr	w8, [sp, #0xfc]
+-cmp	w24, w8
+-b.lo	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w8, [sp, #0x4]
+-tbz	w8, #0x2, <<esp32s3::bus::SocBus>::tick_impl>
+-and	w2, w20, #0x7fffffff
+-mov	x0, x28
+-ldr	w1, [sp, #0xe4]
+-bl	<<esp32s3::bus::SocBus>::write32_access::<false>>
+-mov	w8, #0xff
+-bics	wzr, w8, w0
+-b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	x8, [sp, #0x78]
++ldr	x8, [sp, #0x30]
+ lsr	x8, x8, #32
+-ldr	w9, [sp, #0xc4]
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x1
+-str	w9, [sp, #0xc4]
++str	w9, [sp, #0x6c]
+ tbnz	w20, #0x1e, <<esp32s3::bus::SocBus>::tick_impl>
+-mov	w24, #0x0
+-str	w8, [sp, #0xe4]
++str	wzr, [sp, #0x158]
++str	w8, [sp, #0xd0]
+ cbnz	x8, <<esp32s3::bus::SocBus>::tick_impl>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w21, [sp, #0xe4]
+-ldr	w24, [sp, #0x138]
+-ldr	w8, [sp, #0x4]
++ldr	x24, [sp, #0x78]
++ldr	w21, [sp, #0xd0]
++ldr	w8, [sp, #0x94]
+ tbz	w8, #0x2, <<esp32s3::bus::SocBus>::tick_impl>
+ and	w2, w20, #0x3fffffff
++mov	x20, x0
+ mov	x0, x28
+ mov	x1, x21
+@@ -2015,259 +2051,251 @@
+
+ mov	w8, #0xff
+ bics	wzr, w8, w0
++mov	x0, x20
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+ sub	x27, x19, #0x1
+-ldr	x8, [sp, #0x78]
+-lsr	x8, x8, #32
+-ldr	w9, [sp, #0xc4]
++lsr	x8, x0, #32
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x1
+-str	w9, [sp, #0xc4]
+-ldr	w21, [sp, #0x130]
+-ldr	w19, [sp, #0x108]
+-mov	w24, #0x0
+-str	w8, [sp, #0xe4]
++str	w9, [sp, #0x6c]
++ldr	w21, [sp, #0x108]
++ldp	w19, w12, [sp, #0xac]
++ldp	w14, w13, [sp, #0x80]
++str	wzr, [sp, #0x158]
++str	w8, [sp, #0xd0]
+ cbnz	x8, <<esp32s3::bus::SocBus>::tick_impl>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w8, [sp, #0x4]
++ldr	w8, [sp, #0x94]
+ tbz	w8, #0x2, <<esp32s3::bus::SocBus>::tick_impl>
+ and	w2, w20, #0x7fffffff
++mov	x20, x0
+ mov	x0, x28
+-ldr	w1, [sp, #0xe4]
++ldr	w1, [sp, #0xd0]
+ bl	<<esp32s3::bus::SocBus>::write32_access::<false>>
+ mov	w8, #0xff
+ bics	wzr, w8, w0
++mov	x0, x20
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w21, #0x0
+ sub	x27, x19, #0x1
+-ldr	x8, [sp, #0x78]
+-lsr	x8, x8, #32
+-ldr	w9, [sp, #0xc4]
++lsr	x8, x0, #32
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x1
+-str	w9, [sp, #0xc4]
+-ldr	w19, [sp, #0x108]
+-ldr	w9, [sp, #0xc4]
++str	w9, [sp, #0x6c]
++ldr	x24, [sp, #0x78]
++ldp	w19, w12, [sp, #0xac]
++ldp	w14, w13, [sp, #0x80]
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x2
+-str	w9, [sp, #0xc4]
+-ldr	w9, [sp, #0xe4]
+-str	w9, [sp, #0x84]
+-mov	w24, #0x0
+-str	w8, [sp, #0xe4]
++str	w9, [sp, #0x6c]
++ldr	w9, [sp, #0xd0]
++str	w9, [sp, #0x2c]
++str	wzr, [sp, #0x158]
++str	w8, [sp, #0xd0]
+ cbnz	x8, <<esp32s3::bus::SocBus>::tick_impl>
+-str	w19, [sp, #0x108]
+-mov	w24, #0x0
+-ldr	w9, [sp, #0xc4]
++str	wzr, [sp, #0x158]
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x8
+-str	w9, [sp, #0xc4]
++str	w9, [sp, #0x6c]
+ mov	w9, #0x1
+-str	w21, [sp, #0x130]
++str	w21, [sp, #0x108]
+ mov	w21, #0x0
++ldr	x20, [sp, #0x88]
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w8, #0x0
+-ldr	w9, [sp, #0xc4]
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x4
+-str	w9, [sp, #0xc4]
++str	w9, [sp, #0x6c]
+ mov	w9, #0x1
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w9, #0x0
+-ldr	w26, [sp, #0xd0]
+-orr	w26, w26, #0x8
++ldr	w8, [sp, #0xd4]
++orr	w8, w8, #0x8
++str	w8, [sp, #0xd4]
+ mov	w8, #0x1
++ldr	x20, [sp, #0x88]
++ldp	x26, x25, [sp, #0x58]
++add	x22, x26, #0x1
++ldr	x24, [sp, #0x78]
++ldp	w19, w12, [sp, #0xac]
++ldp	w14, w13, [sp, #0x80]
++ldp	w21, w15, [sp, #0xd0]
++mov	w10, #0x1
++ldr	w11, [sp, #0xe4]
++cmp	w15, w11
++b.eq	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w14, [sp, #0x6c]
++ldr	w15, [sp, #0x130]
++ldr	w13, [sp, #0x3c]
++ldr	w16, [sp, #0x2c]
++ldr	w17, [sp, #0x108]
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w8, #0x0
+-ldr	w9, [sp, #0xc4]
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x4
+-str	w9, [sp, #0xc4]
++str	w9, [sp, #0x6c]
+ mov	w9, #0x1
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w9, #0x0
+-orr	w26, w26, #0x8
++ldr	w8, [sp, #0xd4]
++orr	w8, w8, #0x8
++str	w8, [sp, #0xd4]
+ mov	w8, #0x1
+-ldp	x12, x11, [sp, #0x8]
+-ldp	x17, x16, [sp, #0x58]
+-add	x13, x16, #0x1
+-mov	w14, #0x30
+-mov	w15, #0x2c
+-ldp	x1, x0, [sp, #0x48]
+-ldr	x2, [sp, #0x40]
+-ldr	w3, [sp, #0x74]
+-ldp	w5, w4, [sp, #0x38]
+-ldp	w7, w6, [sp, #0x30]
+-ldp	w20, w19, [sp, #0x28]
+-ldp	w22, w25, [sp, #0xb0]
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w10, [sp, #0xc4]
++ldr	x20, [sp, #0x88]
++add	x22, x26, #0x1
++ldr	x25, [sp, #0x60]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w10, [sp, #0x6c]
+ orr	w9, w10, #0x4
+-ldr	w8, [sp, #0x158]
++ldr	w8, [sp, #0x150]
+ ands	w8, w8, #0x1
+ csel	w10, w10, w9, ne
+-str	w10, [sp, #0xc4]
++str	w10, [sp, #0x6c]
+ mov	w9, #0x1
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w8, [sp, #0xc4]
++ldr	x20, [sp, #0x88]
++ldr	w19, [sp, #0xac]
++ldr	w21, [sp, #0xd0]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w8, [sp, #0x6c]
+ orr	w8, w8, #0x4
+-str	w8, [sp, #0xc4]
++str	w8, [sp, #0x6c]
+ mov	w9, #0x1
+ mov	w8, #0x1
+-ldr	x23, [sp, #0x110]
+-ldp	x12, x11, [sp, #0x8]
+-ldp	x17, x16, [sp, #0x58]
+-add	x13, x16, #0x1
+-mov	w14, #0x30
+-mov	w15, #0x2c
+-ldp	x1, x0, [sp, #0x48]
+-ldr	x2, [sp, #0x40]
+-ldr	w3, [sp, #0x74]
+-ldp	w5, w4, [sp, #0x38]
+-ldp	w7, w6, [sp, #0x30]
+-ldp	w20, w19, [sp, #0x28]
+-ldr	w24, [sp, #0x138]
+-ldr	w10, [sp, #0x130]
++ldr	x23, [sp, #0x128]
++ldr	x20, [sp, #0x88]
++ldr	x24, [sp, #0x78]
++ldp	w19, w12, [sp, #0xac]
++ldp	w14, w13, [sp, #0x80]
++ldr	w10, [sp, #0x108]
+ cmp	w10, #0x0
+ csel	w9, wzr, w9, eq
+ mov	w10, #0x1
+-cmp	w26, w6
+-b.eq	<<esp32s3::bus::SocBus>::tick_impl>
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w26, [sp, #0xd0]
+-orr	w26, w26, #0x8
+-mov	w8, #0x1
+-mov	w9, #0x1
+-ldp	x12, x11, [sp, #0x8]
+-ldp	x17, x16, [sp, #0x58]
+-add	x13, x16, #0x1
+-mov	w14, #0x30
+-mov	w15, #0x2c
+-ldp	x1, x0, [sp, #0x48]
+-ldr	x2, [sp, #0x40]
+-ldr	w3, [sp, #0x74]
+-ldp	w5, w4, [sp, #0x38]
+-ldp	w7, w6, [sp, #0x30]
+-ldp	w20, w19, [sp, #0x28]
+-ldp	w22, w25, [sp, #0xb0]
+-ldr	w21, [sp, #0xe4]
+-ldr	w24, [sp, #0x138]
+-mov	w10, #0x1
+-cmp	w26, w6
+-b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w6, [sp, #0x130]
+-cmp	w6, w7
+-b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w6, [sp, #0x108]
+-cmp	w6, w5
++ldr	w11, [sp, #0xe4]
++ldr	w15, [sp, #0xd4]
++cmp	w15, w11
++b.ne	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w17, [sp, #0x108]
++cmp	w17, w19
++b.ne	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w15, [sp, #0x130]
++cmp	w15, w14
++ldr	w14, [sp, #0x6c]
++ldr	w16, [sp, #0x2c]
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+ cbz	w9, <<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w5, [sp, #0xac]
+-cmp	w5, w4
+-b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	w10, [sp, #0xc4]
+-cmp	w10, w19
+-ccmp	w21, w22, #0x0, eq
+-ccmp	w24, w25, #0x0, eq
++ldr	w11, [sp, #0x3c]
++cmp	w11, w13
++mov	x13, x11
++b.ne	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w10, [sp, #0xe0]
++cmp	w14, w10
++ldr	w10, [sp, #0xf8]
++ccmp	w21, w10, #0x0, eq
++ldr	w10, [sp, #0xd8]
++ldr	w11, [sp, #0x158]
++ccmp	w11, w10, #0x0, eq
+ and	w10, w8, #0xff
+ ccmp	w10, #0x1, #0x0, eq
+-ldr	w10, [sp, #0x84]
+-ccmp	w10, w20, #0x0, eq
++ldr	w10, [sp, #0xdc]
++ccmp	w16, w10, #0x0, eq
+ cset	w10, ne
+-str	d8, [x17]
+-str	w26, [x17, #0x8]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w13, [sp, #0x3c]
++str	d8, [x25]
++ldr	w11, [sp, #0xd4]
++str	w11, [x25, #0x8]
+ ldr	q0, [sp, #0x200]
+-stur	q0, [x17, #0xc]
+-ldr	w5, [sp, #0x130]
+-ldr	w4, [sp, #0xac]
+-stp	w5, w4, [x17, #0x1c]
+-ldr	w4, [sp, #0x108]
+-stp	w4, w3, [x17, #0x24]
+-strb	w9, [x17, #0x2c]
++stur	q0, [x25, #0xc]
++stp	w17, w13, [x25, #0x1c]
++stp	w15, w12, [x25, #0x24]
++strb	w9, [x25, #0x2c]
+ ldrh	w9, [sp, #0x1fc]
+-strh	w9, [x1]
++ldr	x11, [sp, #0xc8]
++strh	w9, [x11]
+ ldrb	w9, [sp, #0x1fe]
+-strb	w9, [x1, #0x2]
+-str	d9, [x0]
+-ldr	w9, [sp, #0xc4]
+-str	w9, [x0, #0x8]
++strb	w9, [x11, #0x2]
++str	d9, [x24]
++str	w14, [x24, #0x8]
+ ldr	q0, [sp, #0x220]
+-stur	q0, [x0, #0xc]
+-stp	w21, w24, [x0, #0x1c]
+-ldr	w9, [sp, #0x84]
+-str	w9, [x0, #0x24]
+-strb	w8, [x0, #0x28]
++stur	q0, [x24, #0xc]
++ldr	w9, [sp, #0x158]
++stp	w21, w9, [x24, #0x1c]
++str	w16, [x24, #0x24]
++strb	w8, [x24, #0x28]
+ ldrb	w8, [sp, #0x21e]
+-strb	w8, [x2, #0x2]
++ldr	x9, [sp, #0xc0]
++strb	w8, [x9, #0x2]
+ ldrh	w8, [sp, #0x21c]
+-strh	w8, [x2]
++strh	w8, [x9]
+ ldrb	w8, [x23, #0x2]
+ orr	w8, w8, w10
+ strb	w8, [x23, #0x2]
+-cmp	x16, #0x4
++cmp	x26, #0x4
++ldr	x21, [sp, #0x8]
+ b.lo	<<esp32s3::bus::SocBus>::tick_impl>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-str	wzr, [sp, #0x130]
++ldp	w21, w8, [sp, #0xd0]
++orr	w8, w8, #0x8
++str	w8, [sp, #0xd4]
++mov	w8, #0x1
++mov	w9, #0x1
++ldr	x20, [sp, #0x88]
++ldp	x26, x25, [sp, #0x58]
++add	x22, x26, #0x1
++ldr	x24, [sp, #0x78]
++ldr	w12, [sp, #0xb0]
++ldp	w14, w13, [sp, #0x80]
++mov	w10, #0x1
++ldr	w11, [sp, #0xe4]
++ldr	w15, [sp, #0xd4]
++cmp	w15, w11
++b.eq	<<esp32s3::bus::SocBus>::tick_impl>
++b	<<esp32s3::bus::SocBus>::tick_impl>
++str	wzr, [sp, #0x108]
+ mov	w9, #0x0
+-orr	w26, w26, #0x10
++ldr	w8, [sp, #0xd4]
++orr	w8, w8, #0x10
++str	w8, [sp, #0xd4]
+ mov	w8, #0x1
+-ldp	x12, x11, [sp, #0x8]
+-ldp	x17, x16, [sp, #0x58]
+-add	x13, x16, #0x1
+-mov	w14, #0x30
+-mov	w15, #0x2c
+-ldp	x1, x0, [sp, #0x48]
+-ldr	x2, [sp, #0x40]
+-ldr	w3, [sp, #0x74]
+-ldp	w5, w4, [sp, #0x38]
+-ldp	w7, w6, [sp, #0x30]
+-ldp	w20, w19, [sp, #0x28]
+-ldr	w21, [sp, #0xe4]
+-ldr	w24, [sp, #0x138]
+-mov	w10, #0x1
+-cmp	w26, w6
+-b.eq	<<esp32s3::bus::SocBus>::tick_impl>
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-str	w19, [sp, #0x108]
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-str	w19, [sp, #0x108]
+-ldr	w24, [sp, #0xfc]
+-mov	x23, x25
+-ldr	w25, [sp, #0xb4]
++ldr	x20, [sp, #0x88]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w14, [sp, #0x6c]
++ldr	w15, [sp, #0x130]
++ldr	w13, [sp, #0x3c]
++ldr	w16, [sp, #0x2c]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w12, [sp, #0xb0]
++ldp	w14, w13, [sp, #0x80]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldr	w8, [sp, #0xfc]
++str	w8, [sp, #0x158]
++ldr	w12, [sp, #0xb0]
++ldp	w14, w13, [sp, #0x80]
++mov	x23, x22
++ldr	x22, [sp, #0x160]
+ mov	w9, #0x0
+-orr	w26, w26, #0x8
++ldp	w21, w8, [sp, #0xd0]
++orr	w8, w8, #0x8
++str	w8, [sp, #0xd4]
+ mov	w8, #0x1
+-ldp	x12, x11, [sp, #0x8]
+-ldp	x17, x16, [sp, #0x58]
+-add	x13, x16, #0x1
+-mov	w14, #0x30
+-mov	w15, #0x2c
+-ldp	x1, x0, [sp, #0x48]
+-ldr	x2, [sp, #0x40]
+-ldr	w3, [sp, #0x74]
+-ldp	w5, w4, [sp, #0x38]
+-ldp	w7, w6, [sp, #0x30]
+-ldp	w20, w19, [sp, #0x28]
+-ldr	w21, [sp, #0xe4]
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-str	w19, [sp, #0x108]
+-str	w21, [sp, #0x130]
+-ldr	w21, [sp, #0xe4]
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-str	wzr, [sp, #0x130]
+-ldr	w21, [sp, #0xe4]
+-ldr	w24, [sp, #0x138]
++ldr	x20, [sp, #0x88]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++str	w21, [sp, #0x108]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldp	w19, w12, [sp, #0xac]
++ldp	w14, w13, [sp, #0x80]
++b	<<esp32s3::bus::SocBus>::tick_impl>
++str	wzr, [sp, #0x108]
++ldr	x24, [sp, #0x78]
++ldp	w19, w12, [sp, #0xac]
++ldp	w14, w13, [sp, #0x80]
++ldr	w21, [sp, #0xd0]
+ mov	w8, #0x0
+-ldr	w9, [sp, #0xc4]
++ldr	w9, [sp, #0x6c]
+ orr	w9, w9, #0x4
+-str	w9, [sp, #0xc4]
++str	w9, [sp, #0x6c]
+ mov	w9, #0x1
+-ldp	x12, x11, [sp, #0x8]
+-ldp	x17, x16, [sp, #0x58]
+-add	x13, x16, #0x1
+-mov	w14, #0x30
+-mov	w15, #0x2c
+-ldp	x1, x0, [sp, #0x48]
+-ldr	x2, [sp, #0x40]
+-ldr	w3, [sp, #0x74]
+-ldp	w5, w4, [sp, #0x38]
+-ldp	w7, w6, [sp, #0x30]
+-ldp	w20, w19, [sp, #0x28]
++ldr	x20, [sp, #0x88]
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+ ldr	x8, [x28, #0x1220]
+-ldr	x24, [sp, #0xa0]
+ cbz	x8, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	x23, [x28, #0x1218]
+@@ -2396,5 +2424,5 @@
+
+ stp	xzr, x20, [x29, #-0x80]
+ stur	xzr, [x29, #-0x70]
+-ldr	x8, [sp, #0xa0]
++ldr	x8, [sp, #0x88]
+ ldrb	w8, [x8, #0x1f6]
+ tbnz	w8, #0x0, <<esp32s3::bus::SocBus>::tick_impl>
+@@ -2462,5 +2490,5 @@
+
+ and	w9, w9, #0xffff0fff
+ str	w9, [x8, x0, lsl #2]
+-ldr	x8, [sp, #0x110]
++ldr	x8, [sp, #0x128]
+ strb	w20, [x8, #0x2]
+ ldr	x8, [x28, #0x3010]
+@@ -2480,27 +2508,28 @@
+
+ bl	<DATA>
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldr	x23, [sp, #0x110]
+-ldr	x24, [sp, #0xa0]
++ldr	x23, [sp, #0x128]
++ldr	x20, [sp, #0x88]
++ldr	x21, [sp, #0x8]
+ ldr	x8, [sp, #0x158]
+ cbz	x8, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	x0, [sp, #0x150]
+ bl	<DATA>
+-ldrb	w8, [x24, #0x283]
++ldrb	w8, [x20, #0x283]
+ tbz	w8, #0x0, <<esp32s3::bus::SocBus>::tick_impl>
+-strb	wzr, [x24, #0x283]
+-ldrb	w8, [x24, #0x56a]
++strb	wzr, [x20, #0x283]
++ldrb	w8, [x20, #0x56a]
+ cbz	w8, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	w8, [x28, #0x17e4]
+ cmp	w8, #0x6
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	x20, #0x0
++mov	x19, #0x0
+ mov	w8, #0x1
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldrb	w8, [x24, #0x596]
++ldrb	w8, [x20, #0x596]
+ cbz	w8, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	w8, [x28, #0x1810]
+ cmp	w8, #0x6
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	w20, #0x1
++mov	w19, #0x1
+ mov	w8, #0x1
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+@@ -2546,5 +2575,5 @@
+
+ orr	w8, w8, #0x1
+ str	w8, [x28, #0x10a0]
+-ldr	x8, [sp, #0x110]
++ldr	x8, [sp, #0x128]
+ strb	w27, [x8, #0x2]
+ cbz	x19, <<esp32s3::bus::SocBus>::tick_impl>
+@@ -2560,5 +2589,5 @@
+
+ ldr	x25, [x28, #0x1030]
+ b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldrb	w8, [x24, #0x5c2]
++ldrb	w8, [x20, #0x5c2]
+ cbz	w8, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	w8, [x28, #0x183c]
+@@ -2566,7 +2595,7 @@
+
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w8, #0x1
+-mov	w20, #0x2
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldrb	w8, [x24, #0x5ee]
++mov	w19, #0x2
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldrb	w8, [x20, #0x5ee]
+ cbz	w8, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	w8, [x28, #0x1868]
+@@ -2574,7 +2603,7 @@
+
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+ mov	w8, #0x1
+-mov	w20, #0x3
+-b	<<esp32s3::bus::SocBus>::tick_impl>
+-ldrb	w8, [x24, #0x61a]
++mov	w19, #0x3
++b	<<esp32s3::bus::SocBus>::tick_impl>
++ldrb	w8, [x20, #0x61a]
+ ldr	w9, [x28, #0x1894]
+ cmp	w9, #0x6
+@@ -2582,26 +2611,32 @@
+
+ ands	w8, w8, w9
+ mov	w9, #0x4
+-cinc	x20, x9, eq
+-ldrb	w9, [x24, #0x47e]
++cinc	x19, x9, eq
++ldrb	w9, [x20, #0x47e]
+ cbz	w9, <<esp32s3::bus::SocBus>::tick_impl>
+ ldr	w9, [x28, #0x16f4]
+ cmp	w9, #0x6
+ b.ne	<<esp32s3::bus::SocBus>::tick_impl>
+-mov	x19, #0x0
++mov	x22, #0x0
+ mov	w9, #0x1
+ and	w8, w8, w9
+ tbz	w8, #0x0, <<esp32s3::bus::SocBus>::tick_impl>
++mov	x24, x21
++mov	w8, #0x1
++stp	xzr, x8, [sp, #0x170]
++str	xzr, [sp, #0x180]
