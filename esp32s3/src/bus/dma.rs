@@ -222,7 +222,15 @@ impl SocBus {
                     address,
                     fault,
                 })?;
-                channel.buf_pos += remaining as u32;                     // GDMA drains the descriptor
+                // A non-EOF descriptor may span successive SPI data phases. M5GFX
+                // splits a 57,600-byte sprite at the 18-bit MS_DLEN limit (IDF 5.5.4,
+                // soc/esp32s3/register/soc/spi_reg.h: SPI_MS_DATA_BITLEN).
+                // Retiring this descriptor here would discard its unread tail.
+                if count < remaining && !eof {
+                    channel.buf_pos += count as u32;
+                    break;
+                }
+                channel.buf_pos += remaining as u32;
             }
             if channel.conf0 & (1 << 2) != 0 {
                 let writable = current.desc.checked_add(4).is_some_and(|end| {
