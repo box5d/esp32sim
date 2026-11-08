@@ -25,9 +25,12 @@ pub trait I2cDevice {
     fn stop(&mut self) {}
 }
 
+pub const INT_RXFIFO_FULL: u32 = 1 << 0;
+pub const INT_TXFIFO_EMPTY: u32 = 1 << 1;
 pub const INT_END_DETECT: u32 = 1 << 3;
 pub const INT_TRANS_COMPLETE: u32 = 1 << 7;
 pub const INT_TIMEOUT: u32 = 1 << 8;
+pub const INT_TRANS_START: u32 = 1 << 9;
 pub const INT_NACK: u32 = 1 << 10;
 
 pub struct I2c<const N: usize = 8> {
@@ -106,7 +109,7 @@ impl I2c<$n> {
             // IDF v5.5.4 S3 i2c_reg.h:173-179: BUS_BUSY bit 4.
             0x08 => (self.nack as u32) | ((self.is_active() as u32) << 4) | (u32::from($n == 16 && self.int_raw & INT_TIMEOUT != 0) << 2) | ((self.rx.len() as u32 & 0x3f) << 8) | ((self.tx.len() as u32 & 0x3f) << 18),   // SR: resp_rec, bus_busy, rxfifo_cnt, txfifo_cnt
             0x14 => ((self.rx.len() as u32 & 0x1f) << 5) | ((self.tx.len() as u32 & 0x1f) << 15),                        // FIFO_ST: waddr = count, raddr = 0
-            0x1c => self.rx.pop_front().unwrap_or(0) as u32,
+            0x1c => { let b = self.rx.pop_front().unwrap_or(0); if self.rx.len() <= self.rx_full_thrhd() { self.int_raw &= !INT_RXFIFO_FULL; } b as u32 }
             0x20 => self.int_raw,
             0x28 => self.int_ena,
             0x2c => self.int_raw & self.int_ena,
@@ -134,7 +137,7 @@ impl I2c<$n> {
                 if v & (1 << 5) != 0 { self.run(); }
             }               // CTR.TRANS_START
             0x18 => { if v & (1 << 13) != 0 { self.tx.clear(); } if v & (1 << 12) != 0 { self.rx.clear(); } self.regs.write(off, v & !(3 << 12)); }
-            0x1c => { if self.tx.len() < 32 { self.tx.push_back(v as u8); } }
+            0x1c => { if self.tx.len() < 32 { self.tx.push_back(v as u8); } if self.tx.len() > self.tx_empty_thrhd() { self.int_raw &= !INT_TXFIFO_EMPTY; } }
             0x24 => self.int_raw &= !v,
             0x28 => self.int_ena = v,
             0x58..=0x74 => self.program.cmd[((off - 0x58) / 4) as usize] = v & !(1 << 31),
@@ -188,16 +191,35 @@ impl I2c<$n> {
         self.remaining = Some(self.clock_ticks(cycles.into()));
     }
 
+    // FIFO_CONF (0x18) thresholds, classic and S3 layout: rx full [4:0], tx empty [9:5].
+    fn rx_full_thrhd(&self) -> usize { (self.regs.read(0x18) & 0x1f) as usize }
+    fn tx_empty_thrhd(&self) -> usize { ((self.regs.read(0x18) >> 5) & 0x1f) as usize }
+    fn refresh_fifo_ints(&mut self) {
+        if self.tx.len() <= self.tx_empty_thrhd() { self.int_raw |= INT_TXFIFO_EMPTY; }
+        if self.rx.len() > self.rx_full_thrhd() { self.int_raw |= INT_RXFIFO_FULL; }
+    }
+
     fn run(&mut self) {
         if self.is_active() { return; }
         self.nack = false;
+        // Guests may fill the TX FIFO from the trans-start / tx-empty interrupt
+        // (the Arduino HAL does exactly this), so raise both before stepping.
+        if $n != 16 { self.int_raw |= INT_TRANS_START; }
+        self.refresh_fifo_ints();
         self.transactions += 1;
         self.command_index = 0;
         self.byte_index = 0;
         self.schedule();
         // Classic adapter retains its synchronous transaction model; modern controllers
-        // retain #199's scheduled byte callbacks and clock selection.
-        if $n == 16 { self.advance(u64::MAX); }
+        // retain #199's scheduled byte callbacks and clock selection. A guest that arms
+        // the trans-start / tx-empty interrupts fills the FIFO from its ISR after
+        // trans_start (Arduino HAL style), so synchronous execution would clock out an
+        // empty FIFO; defer to ticks so the ISR can fill first.
+        if $n == 16 {
+            let isr_fill = self.int_ena & (INT_TXFIFO_EMPTY | INT_TRANS_START) != 0
+                && self.tx.len() <= self.tx_empty_thrhd();
+            if !isr_fill { self.advance(u64::MAX); }
+        }
     }
 
     fn advance(&mut self, mut ticks: u64) {
@@ -217,6 +239,7 @@ impl I2c<$n> {
             6 => self.expect_addr = true,
             1 if self.byte_index < n => {
                 let b = self.tx.pop_front().unwrap_or(0);
+                self.refresh_fifo_ints();
                 let ack = if self.expect_addr {
                     self.expect_addr = false;
                     let addr = b >> 1; let rd = b & 1 != 0;
@@ -251,6 +274,7 @@ impl I2c<$n> {
                 for &k in &self.cur { b &= self.devices[k].1.read(); }
                 if self.log { eprintln!("[i2c]   read  {b:#04x}"); }
                 if self.rx.len() < 32 { self.rx.push_back(b); }
+                self.refresh_fifo_ints();
                 self.byte_index += 1;
                 if self.byte_index < n { return; }
             }

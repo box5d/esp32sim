@@ -5,7 +5,7 @@
 //! Adapter completion behavior is inferred;
 //! no hardware timing validation is claimed.
 pub use crate::crypto::{ClassicAes, ClassicRsa, ClassicSha};
-use crate::{timers::ClassicTimer, rmt::ClassicRmt, spi::ClassicGpSpi, ledc::ClassicLedc};
+use crate::{timers::{ClassicFrc, ClassicTimer}, rmt::ClassicRmt, spi::ClassicGpSpi, ledc::ClassicLedc};
 use crate::adc::ClassicAdc;
 use emu_core::{ClockDomain, ClockTree};
 use esp_periph::{
@@ -636,6 +636,7 @@ pub struct Peripherals {
     pub efuse: ClassicEfuse,
     pub sha: ClassicSha,
     pub timg: [ClassicTimer; 2],
+    pub frc: ClassicFrc,
     pub i2c: [esp_periph::i2c::I2c<16>; 2],
     pub misc: Misc,
     pub spi_exec: bool,
@@ -664,6 +665,7 @@ device_set! { Peripherals; clock: (clock) CPU_HZ, [(ClockDomain::RtcSlow, 1600)]
     0x4f "I2S0" (i2s[0]) => [32];
     0x6d "I2S1" (i2s[1]) => [33];
     0x46 "FE" (fe) => [];
+    0x47 "FRC" (frc) => [];
     0x4e "I2C_MST" (analog) => [];
     0x73 "WIFI_MAC" (wifi) => [SRC_WIFI_MAC];
     0x74 "WIFI_MAC" alias (wifi) delta 0x1000 => [];
@@ -724,6 +726,7 @@ impl Peripherals {
             efuse: ClassicEfuse::new(mac),
             sha: ClassicSha::new(),
             timg: [ClassicTimer::new(0), ClassicTimer::new(1)],
+            frc: ClassicFrc::new(),
             i2c: [esp_periph::i2c::I2c::new_classic(), esp_periph::i2c::I2c::new_classic()],
             misc: Misc::new(),
             spi_exec: false,
@@ -763,6 +766,7 @@ impl Peripherals {
             0x43 => "SPI0",
             0x44 => "GPIO",
             0x46 => "FE",
+            0x47 => "FRC",
             0x4e => "I2C_MST",
             0x73..=0x75 => "WIFI_MAC",
             0x48 => "RTCCNTL",
@@ -885,9 +889,17 @@ impl Peripherals {
             timer.tick(ticks);
             irq_changed |= before != timer.irq_sources();
         }
+        self.frc.tick(ticks);
         let ledc_before = self.ledc.irq_sources();
         let rmt_before = self.rmt.irq_sources();
         if self.ledc.clock() == Some(ClockDomain::Apb) { self.ledc.tick(ticks); }
+        // I2C shares the manual APB list: Dispatch has no Apb delta on classic, and a
+        // deferred (ISR-filled) transaction only advances when ticked from here.
+        for i2c in &mut self.i2c {
+            let before = i2c.irq_sources();
+            if i2c.clock() == Some(ClockDomain::Apb) { i2c.tick(ticks); }
+            irq_changed |= before != i2c.irq_sources();
+        }
         if self.rmt.clock() == Some(ClockDomain::Apb) { self.rmt.tick(ticks); }
         irq_changed |= ledc_before != self.ledc.irq_sources();
         irq_changed |= rmt_before != self.rmt.irq_sources();
@@ -945,6 +957,9 @@ impl Peripherals {
             if let Some(t) = timer.next_deadline() {
                 best = best.min(t.saturating_sub(1).saturating_mul(self.apb_divider()));
             }
+        }
+        if let Some(t) = self.frc.next_deadline() {
+            best = best.min(t.saturating_sub(1).saturating_mul(self.apb_divider()));
         }
         for device in [&self.ledc as &dyn Device, &self.rmt as &dyn Device] {
             if let Some(t) = device.next_deadline() {
