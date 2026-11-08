@@ -5,7 +5,7 @@
 pub mod bus;
 pub mod clock;
 pub mod core;
-#[cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux", target_os = "android")))]
 pub mod jit_a64;
 
 pub use bus::{Bus, Fault, FlatRam};

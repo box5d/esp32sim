@@ -1,5 +1,5 @@
 //! Native fast-memory bounds must fault through the bus before any host pointer access.
-#![cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux")))]
+#![cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux", target_os = "android")))]
 
 use emu_core::bus::{tlb_index, FastMem, TlbEntry, TLB_ENTRIES};
 use xtensa_lx7::block::run_block;

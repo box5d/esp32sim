@@ -13,10 +13,10 @@
 //! is executed by calling back into `exec_insn` through `Helpers::exec`.
 #![allow(clippy::too_many_arguments)]
 
-#[cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux", target_os = "android")))]
 pub use emu_core::jit_a64 as a64;
 
-#[cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux", target_os = "android")))]
 mod native {
     use super::a64::{Asm, Cond, Label, Reg, SP, ZR};
     use crate::block::BlockInsn;
@@ -34,7 +34,7 @@ mod native {
         fn mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, off: i64) -> *mut c_void;
         #[cfg(target_os = "macos")] fn pthread_jit_write_protect_np(enabled: c_int);
         #[cfg(target_os = "macos")] fn sys_icache_invalidate(start: *mut c_void, len: usize);
-        #[cfg(target_os = "linux")] fn __clear_cache(start: *mut c_void, end: *mut c_void);
+        #[cfg(any(target_os = "linux", target_os = "android"))] fn __clear_cache(start: *mut c_void, end: *mut c_void);
     }
 
     pub struct CodeCache { base: *mut u8, size: usize, used: usize }
@@ -48,7 +48,7 @@ mod native {
     impl CodeCache {
         pub fn new(size: usize) -> Option<CodeCache> {
             #[cfg(target_os = "macos")] let flags = 0x0002 | 0x1000 | 0x0800;   // PRIVATE | ANON | JIT
-            #[cfg(target_os = "linux")] let flags = 0x0002 | 0x0020;            // PRIVATE | ANONYMOUS
+            #[cfg(any(target_os = "linux", target_os = "android"))] let flags = 0x0002 | 0x0020;            // PRIVATE | ANONYMOUS
             // SAFETY: A null address lets the operating system select the mapping. The length and
             // integer flags borrow no memory, and failure is checked before the pointer is stored.
             let p = unsafe { mmap(std::ptr::null_mut(), size, 7, flags, -1, 0) };
@@ -71,7 +71,7 @@ mod native {
                 std::ptr::copy_nonoverlapping(words.as_ptr() as *const u8, self.base.add(off), bytes);
                 #[cfg(target_os = "macos")] pthread_jit_write_protect_np(1);
                 #[cfg(target_os = "macos")] sys_icache_invalidate(self.base.add(off) as *mut c_void, bytes);
-                #[cfg(target_os = "linux")] __clear_cache(self.base.add(off) as *mut c_void, self.base.add(off + bytes) as *mut c_void);
+                #[cfg(any(target_os = "linux", target_os = "android"))] __clear_cache(self.base.add(off) as *mut c_void, self.base.add(off + bytes) as *mut c_void);
             }
             self.used += bytes;
             Some(off as u32)
@@ -583,7 +583,7 @@ mod native {
     #[allow(dead_code)] fn _uses(_: Label, _: Trap) {}
 }
 
-#[cfg(not(any(target_arch = "wasm32", all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux")))))]
+#[cfg(not(any(target_arch = "wasm32", all(target_arch = "aarch64", any(target_os = "macos", target_os = "linux", target_os = "android")))))]
 mod native {
     use crate::block::BlockInsn;
     use crate::bus::Bus;

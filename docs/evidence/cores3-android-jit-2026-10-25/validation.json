@@ -1,0 +1,27 @@
+{
+  "baseRevision": "598beb6",
+  "host": "aarch64-linux-android",
+  "rust": "1.95.0",
+  "tests": {
+    "passed": 1003,
+    "groups": 105,
+    "failures": 0
+  },
+  "nativeClippy": "passed: cargo clippy --offline --workspace --all-targets -- -D warnings",
+  "browserCases": [
+    "camera",
+    "camera-fragmented",
+    "imu"
+  ],
+  "sourceSha256": {
+    "emu-core/src/lib.rs": "1e89252379ed38be65ea124a5dbaa5136aa68b04193ef1321a594424f60a46b3",
+    "xtensa-lx7/src/jit/mod.rs": "752c3c96f6856ba128a9760e69a16a1dd204d6bb59e83f6d941b2801a2ea1e4c",
+    "xtensa-lx7/tests/jit_memory.rs": "ac576615715379881564c38742e9aca086be1d8d63c4bc5d99f351467169fc19",
+    "xtensa-lx7/build.rs": "a8e0ff54942b31ca604d02c606c72824ae98082121bf39770745b605e4a803e5"
+  },
+  "limitations": [
+    "No physical hardware comparison",
+    "No wasm32 cross-target test: target toolchain is not installed; the wasm32 cfg path is unchanged",
+    "Whole-system background load was not controlled; sample order alternates, and all samples are retained"
+  ]
+}
