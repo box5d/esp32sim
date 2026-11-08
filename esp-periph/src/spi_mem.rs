@@ -82,7 +82,9 @@ impl SpiMem {
         // USR bit 18 (110-113), MISO/MOSI bits 28/27 (383-391), CS disable (560-570).
         let misc = self.regs.read(0x34);
         if self.has_psram && cmd & (1 << 18) != 0 && misc & 1 != 0 && misc & 2 == 0 {   // USR command with CS0 disabled, CS1 enabled: PSRAM
-            let c16 = user2 & 0xffff;
+            let c16 = if self.addr_msb_aligned && user & (1 << 31) == 0 && user & (1 << 30) != 0 && addr_bits == 8 {
+                addr & 0xff
+            } else { user2 & 0xffff };
             let has_miso = user & (1 << 28) != 0; let has_mosi = user & (1 << 27) != 0;
             if self.log { eprintln!("[spi1] psram cmd {:#06x} addr {:#x} miso {} mosi {}", c16, addr, if has_miso { miso_bytes } else { 0 }, if has_mosi { mosi_bytes } else { 0 }); }
             let psize = psram.len();

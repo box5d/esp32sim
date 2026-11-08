@@ -89,6 +89,9 @@ impl esp_soc::SocBus for SocBus {
             u32::MAX => None,
             n => Some(self.cpu_cycles_for_bus(u64::from(n)).max(1)),
         };
+        // DAC DMA must keep advancing while both guest cores wait for audio buffers.
+        let audio = self.periph.i2s[0].dac_active().then(|| self.cpu_cycles_for_bus(periph::CPU_HZ / 1000).max(1));
+        let timer = timer.into_iter().chain(audio).min();
         if !self.pins_active { return timer; }
         timer.into_iter().chain(self.board.next_deadline().map(|n| self.cpu_cycles_for_bus(n.saturating_sub(self.cycles)).max(1))).min()
     }
@@ -115,11 +118,18 @@ impl esp_soc::SocBus for SocBus {
         self.ble.reset();
         let cause = self.periph.rtc.0.reset_cause;
         let mut old = std::mem::replace(&mut self.periph, Peripherals::new(mac));
-        for port in 0..2 { self.periph.i2s[port].inner.keep_rx_input(&mut old.i2s[port].inner); }
+        for port in 0..2 {
+            self.periph.i2s[port].inner.keep_rx_input(&mut old.i2s[port].inner);
+            self.periph.i2s[port].inner.pcm = std::mem::take(&mut old.i2s[port].inner.pcm);
+            self.periph.i2s[port].inner.sample_rate = old.i2s[port].inner.sample_rate;
+            self.periph.i2s[port].inner.frames_out = old.i2s[port].inner.frames_out;
+        }
         self.periph.restore_rtc_analog(old.adc);
         self.periph.gpio.restore_inputs(&old.gpio);
         self.periph.spi0.0.jedec = old.spi0.0.jedec;
         self.periph.spi1.0.jedec = old.spi1.0.jedec;
+        self.periph.spi0.0.has_psram = !self.psram.is_empty();
+        self.periph.spi1.0.has_psram = !self.psram.is_empty();
         self.periph.efuse = old.efuse;
         self.periph.wifi.link = old.wifi.link.surviving_reboot();
         self.periph.wifi.log = old.wifi.log;
@@ -218,7 +228,8 @@ impl esp_soc::SocBus for SocBus {
         self.periph.i2s.get_mut(port).map(|i| i.inner.rx_input())
     }
     fn audio(&self) -> (&[i16], u32) {
-        (&[], 44_100)
+        let audio = &self.periph.i2s[0].inner;
+        (&audio.pcm, audio.sample_rate)
     }
     fn irq_sources_of(&self, core: usize, line: u32) -> Vec<usize> {
         (0..periph::NUM_SOURCES)

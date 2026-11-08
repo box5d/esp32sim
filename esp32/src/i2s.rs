@@ -20,11 +20,21 @@ const LC_CONF_RESET: u32 = 1 << 8;
 /// LC_CONF CHECK_OWNER, at the bit position the shared channel's CONF1 uses too.
 const CHECK_OWNER: u32 = 1 << 12;
 
+// ESP-IDF v5.5.5 i2s_reg.h: CONF TX_START bit 4, OUT_LINK 0x30,
+// EOF descriptor 0x38, LC_CONF auto-writeback bit 6, CONF2 LCD_EN bit 0.
+// sens_reg.h: SAR_DAC_CTRL1 (0x98) DIG_FORCE bit 22 selects I2S-to-DAC.
+// This adapter implements DMA-boundary mono DAC output, not a pin-level serializer.
+#[derive(Default)]
+pub(crate) struct ClassicDacTx {
+    running: bool, desc: u32, rate: u32, phase: u64, credit: usize, wait_bytes: usize,
+}
+
 pub struct ClassicI2s {
     pub inner: I2s,
     ram: RegRam,
     dma: esp_periph::gdma::GdmaInCh,
     pub(crate) clock_enabled: bool,
+    pub(crate) tx: ClassicDacTx,
     #[cfg(test)]
     pub(crate) step_calls: u64,
 }
@@ -35,12 +45,20 @@ impl ClassicI2s {
         ram.write(8, CONF_RESET);
         ram.write(0x24, 64);
         ram.write(0x60, LC_CONF_RESET);
-        Self { inner: I2s::new(CPU_HZ), ram, dma: esp_periph::gdma::GdmaInCh { conf1: LC_CONF_RESET & CHECK_OWNER, ..Default::default() }, clock_enabled: false,
+        Self { inner: I2s::new(CPU_HZ), ram, dma: esp_periph::gdma::GdmaInCh { conf1: LC_CONF_RESET & CHECK_OWNER, ..Default::default() }, clock_enabled: false, tx: ClassicDacTx::default(),
             #[cfg(test)] step_calls: 0 }
     }
     /// Writes go through `Device::write`, as the other chips' dispatch does, so the shared
     /// inherent writer keeps its single caller and S3/C3/C6 code generation is unchanged.
     fn sync(&mut self) {
+        let clock = self.ram.read(0xac);
+        let (a, b, n) = ((clock >> 14) & 63, (clock >> 8) & 63, clock & 255);
+        let bck = self.ram.read(0xb0) & 63;
+        let div = n as f64 + if a != 0 { b as f64 / a as f64 } else { 0.0 };
+        self.tx.rate = if self.ram.read(0xa8) & 1 != 0 && clock & (1 << 21) == 0 && bck != 0 && div >= 2.0 {
+            (160_000_000.0 / div / bck as f64).round() as u32
+        } else { 0 };
+
         let conf = self.ram.read(8);
         let clock = self.ram.read(0xac);
         let sample = self.ram.read(0xb0);
@@ -72,6 +90,9 @@ impl ClassicI2s {
         let signals = esp_periph::i2s::RxSignals { data, clock, input_select_bit: 7, output_mask: 0x3ff };
         self.inner.receive(cycles, now, false, &gpio.gpio, signals, sources)
     }
+    pub(crate) fn dac_active(&self) -> bool {
+        self.clock_enabled && self.tx.running && self.tx.rate != 0 && self.ram.read(8) & (1 << 4) != 0
+    }
     /// Map the shared channel's GDMA-layout interrupt bits onto classic INT_RAW: IN_DONE 0,
     /// IN_SUC_EOF 1, IN_DSCR_ERR 3 and IN_DSCR_EMPTY 4 become bits 8, 9, 13 and 15.
     #[inline]
@@ -86,7 +107,7 @@ impl Device for ClassicI2s {
             0xc | 0x10 | 0x14 => self.inner.read(off),
             // IDF v5.5.4 i2s_reg.h:105-128: all four reset bits are plain R/W.
             8 => self.ram.read(off),
-            0xbc => 1,
+            0xbc => u32::from(!self.dac_active()),
             _ => self.ram.read(off),
         }
     }
@@ -94,12 +115,22 @@ impl Device for ClassicI2s {
         self.ram.write(off, value);
         match off {
             0x14 | 0x18 => { Device::write(&mut self.inner, off, value); }
+            0x30 => {
+                if value & (1 << 28) != 0 { self.tx.running = false; }
+                if value & (3 << 29) != 0 {
+                    self.tx.desc = 0x3ff0_0000 | (value & 0xfffff);
+                    self.tx.running = true; self.tx.phase = 0; self.tx.credit = 0; self.tx.wait_bytes = 4;
+                }
+            }
             0x34 => {
                 if value & (1 << 28) != 0 { self.dma.running = false; }
                 if value & (3 << 29) != 0 { self.dma.desc = 0x3ff0_0000 | (value & 0xfffff); self.dma.buf_pos = 0; self.dma.rx_eof_pos = 0; self.dma.running = true; }
             }
             0x60 => self.dma.conf1 = value & CHECK_OWNER,
-            8 | 0x2c | 0xac | 0xb0 => self.sync(),
+            8 | 0x2c | 0xa8 | 0xac | 0xb0 => {
+                if off == 8 && value & 5 != 0 { self.tx.phase = 0; self.tx.credit = 0; self.tx.wait_bytes = 4; }
+                self.sync();
+            }
             _ => {}
         }
         WriteEffect::NONE
@@ -137,7 +168,55 @@ impl Bus for DramDma<'_> {
 
 impl SocBus {
     #[inline]
+    fn dac_step(&mut self, cycles: u64) {
+        if !self.periph.i2s[0].dac_active() { return; }
+        let tx = &mut self.periph.i2s[0].tx;
+        tx.phase += cycles.saturating_mul(tx.rate as u64);
+        tx.credit = tx.credit.saturating_add((tx.phase / CPU_HZ) as usize * 2);
+        tx.phase %= CPU_HZ;
+        if tx.credit < tx.wait_bytes { return; }
+        let mut walk = esp_periph::gdma::DescriptorWalk::new(64);
+        loop {
+            let (addr, credit) = { let tx = &self.periph.i2s[0].tx; (tx.desc, tx.credit) };
+            if credit < 4 { break; }
+            let descriptor = walk.read(&mut DramDma(self), addr);
+            let Ok((control, d)) = descriptor else { self.dac_fault(); break; };
+            let check_owner = self.periph.i2s[0].ram.read(0x60) & CHECK_OWNER != 0;
+            if d.length == 0 || d.length > d.size || d.length % 4 != 0 || d.buf % 4 != 0 || (check_owner && !d.owner_dma) {
+                self.dac_fault(); break;
+            }
+            self.periph.i2s[0].tx.wait_bytes = d.length as usize;
+            if credit < d.length as usize { break; }
+            if !DramDma::reaches(d.buf, d.length) { self.dac_fault(); break; }
+            let powered = self.periph.adc.rtc_io.read(0x84) & ((1 << 18) | (1 << 10)) == (1 << 18) | (1 << 10);
+            let enabled = powered && self.periph.adc.read_sens(0x98) & (1 << 22) != 0;
+            for offset in (0..d.length).step_by(4) {
+                let Some(word) = self.dma_read_word(d.buf + offset) else { self.dac_fault(); return; };
+                // ESP32 mono FIFO sends the high halfword first; DAC consumes its top 8 bits.
+                for byte in [(word >> 24) as u8, (word >> 8) as u8] {
+                    self.periph.i2s[0].inner.pcm.push(if enabled { (byte as i16 - 128) << 8 } else { 0 });
+                }
+            }
+            let wrback = self.periph.i2s[0].ram.read(0x60) & (1 << 6) != 0;
+            if wrback && !self.dma_write_word(addr, control & !(1 << 31)) { self.dac_fault(); break; }
+            let i2s = &mut self.periph.i2s[0];
+            i2s.inner.sample_rate = i2s.tx.rate;
+            i2s.inner.frames_out += u64::from(d.length / 2);
+            i2s.inner.int_raw |= 1 << 11;
+            if d.eof { i2s.inner.int_raw |= 1 << 12; i2s.ram.write(0x38, addr); }
+            i2s.ram.write(0x54, addr);
+            i2s.tx.credit -= d.length as usize; i2s.tx.desc = d.next; i2s.tx.wait_bytes = 4;
+            self.irq_dirty = true;
+            if d.next == 0 { self.periph.i2s[0].tx.running = false; break; }
+        }
+    }
+    fn dac_fault(&mut self) {
+        self.periph.i2s[0].tx.running = false;
+        self.periph.i2s[0].inner.int_raw |= 1 << 14;
+        self.irq_dirty = true;
+    }
     pub(crate) fn i2s_step(&mut self, cycles: u64) {
+        self.dac_step(cycles);
         for port in 0..2 {
             if !self.periph.i2s[port].clock_enabled || !self.periph.i2s[port].dma.running { continue; }
             #[cfg(test)] { self.periph.i2s[port].step_calls += 1; }

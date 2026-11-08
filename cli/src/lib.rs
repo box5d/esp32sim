@@ -334,13 +334,16 @@ fn setup_esp32(o: &Opts) -> esp32::Machine {
     m.bus.set_flash_size(o.flash_mb.unwrap_or(4) << 20);
     if !o.debug.is_empty() { let mut f = esp_soc::DebugFlags::from_env(); for d in &o.debug { f.parse(d); } m.set_debug(&f); }
     let board = if o.board == "atech14" { "none" } else { &o.board };
-    m.bus.board = esp32::board::make_board(board).unwrap_or_else(|| usage_error(&format!("unknown classic ESP32 board '{board}' (none, bare, esp32dev, ttgo-tdisplay)")));
+    m.bus.board = esp32::board::make_board(board).unwrap_or_else(|| usage_error(&format!("unknown classic ESP32 board '{board}' (none, bare, esp32dev, ttgo-tdisplay, m5basic, m5core2, m5fire)")));
+    let psram_mb = o.psram_mb.unwrap_or(if matches!(board, "m5core2" | "m5stack-core2" | "m5fire" | "m5stack-fire") { 8 } else { 0 });
+    if !matches!(psram_mb, 0 | 2 | 4 | 8) { usage_error("classic ESP32 PSRAM must be 0, 2, 4 or 8 MiB"); }
+    m.bus.set_psram_size(psram_mb << 20);
     m.bus.attach_board_devices();
     if let Some(spec) = &o.wifi {
         let (cfg, nat) = wifi_config(spec, o.net == "nat" || o.net == "user", m.bus.debug.has("net"));
         m.bus.attach_wifi(cfg, nat).unwrap_or_else(|e| { eprintln!("--wifi: {e}"); std::process::exit(2) });
     }
-    for (flag, on) in [("--cam-image", o.cam_image.is_some()), ("--psram-mb", o.psram_mb.is_some()), ("--efuse-regs", o.efuse_regs.is_some()), ("--regs-init", o.regs_init.is_some()), ("--regstat", o.regstat.is_some())] {
+    for (flag, on) in [("--cam-image", o.cam_image.is_some()), ("--efuse-regs", o.efuse_regs.is_some()), ("--regs-init", o.regs_init.is_some()), ("--regstat", o.regstat.is_some())] {
         if on { eprintln!("{} is not available on the classic ESP32", flag); std::process::exit(2); }
     }
     m

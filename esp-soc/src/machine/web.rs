@@ -61,6 +61,10 @@ impl<S: Soc> Machine<S> {
             }
             self.ws.cam_pushed = self.bus.camera_frames() / 20;
         }
+        if matches!(self.bus.board_ref().name(), "m5basic" | "m5fire") {
+            let (hz, duty) = self.bus.pwm_output(25).filter(|(hz, _)| hz.is_finite()).unwrap_or((0.0, 0));
+            w.send_text(&format!("{{\"t\":\"pwm\",\"hz\":{hz},\"duty\":{duty}}}"));
+        }
         let (pcm, rate) = self.bus.audio();
         if pcm.len() > self.ws.audio_sent {
             let chunk = &pcm[self.ws.audio_sent..];

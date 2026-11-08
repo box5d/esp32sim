@@ -55,6 +55,7 @@ pub struct SocBus {
     pub rtc_fast: Vec<u8>,
     pub rtc_slow: Vec<u8>,
     pub flash: Vec<u8>,
+    pub psram: Vec<u8>,
     pub rng: Rng,
     pub mmu: [[u32; 2048]; 2],
     pub periph: Peripherals,
@@ -82,6 +83,7 @@ impl SocBus {
             rtc_fast: vec![0; 0x2000],
             rtc_slow: vec![0; 0x2000],
             flash: vec![0xff; flash_size],
+            psram: Vec::new(),
             rng: Rng::new(),
             mmu: [[MMU_INVALID; 2048]; 2],
             periph: Peripherals::new(mac),
@@ -96,6 +98,11 @@ impl SocBus {
             pins_active: false,
             ble: Default::default(),
         }
+    }
+    pub fn set_psram_size(&mut self, size: usize) {
+        self.psram.resize(size, 0);
+        self.periph.spi0.0.has_psram = size != 0;
+        self.periph.spi1.0.has_psram = size != 0;
     }
     fn load<const N: usize>(&mut self, a: u32) -> Result<[u8; N], Fault> {
         if Self::is_periph(a) {
@@ -173,6 +180,21 @@ impl SocBus {
     }
     fn memory(&mut self, addr: u32) -> Option<(&mut Vec<u8>, usize, bool)> {
         match addr {
+            // ESP32 TRM v5.9 tables 4.3-14..18: 32 KiB pages, LV/RV tables start at entry 1152.
+            0x3f80_0000..=0x3fbf_ffff if !self.psram.is_empty() => {
+                let control = self.periph.dport.ram.read(0x40);
+                let high_low = control & (1 << 16) != 0;
+                let even_odd = control & (1 << 11) != 0;
+                let right = (high_low && addr >= 0x3fa0_0000) || (even_odd && addr & 32 != 0);
+                // shortcut: distinct normal-mode CPU mappings require per-core bus context; fault rather than alias them.
+                let index = 1152 + ((addr - 0x3f80_0000) >> 15) as usize;
+                if !high_low && !even_odd && self.mmu[1][index] & MMU_INVALID == 0 && self.mmu[0][index] != self.mmu[1][index] { return None; }
+                let entry = self.mmu[usize::from(right)][1152 + ((addr - 0x3f80_0000) >> 15) as usize];
+                if entry & MMU_INVALID != 0 { return None; }
+                let off = (entry as usize & 0xff) * 0x8000 + (addr as usize & 0x7fff);
+                if off >= self.psram.len() { return None; }
+                Some((&mut self.psram, off, true))
+            }
             IROM_MASK_LOW..=0x4006_ffff => {
                 Some((&mut self.irom, (addr - IROM_MASK_LOW) as usize, false))
             }
@@ -295,8 +317,10 @@ impl SocBus {
     }
     fn run_spi(&mut self) {
         self.periph.spi_exec = false;
-        self.periph.spi1.0.execute(&mut self.flash, &mut []);
-        for (_, off, len) in std::mem::take(&mut self.periph.spi1.0.dirty) { self.flash_written(off, len); }
+        self.periph.spi1.0.execute(&mut self.flash, &mut self.psram);
+        for (kind, off, len) in std::mem::take(&mut self.periph.spi1.0.dirty) {
+            if kind == esp_periph::spi_mem::DirtyMem::Flash { self.flash_written(off, len); }
+        }
     }
     pub fn attach_board_devices(&mut self) {
         self.irq_dirty = true;

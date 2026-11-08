@@ -11,7 +11,10 @@
 //!   - Camera: GC0308 on I2C0 @0x21, RGB565 or YUYV over the LCD_CAM DVP port
 
 use esp_soc::board::{BoardEdge, BoardModel, VirtualCycle};
-use esp_soc::devices::DcsPanel;
+use esp_soc::devices::{
+    i2c_bitbang::{I2cBitBang, SharedI2cDevice},
+    DcsPanel,
+};
 use esp_soc::picture::{self, Picture, PixelFormat};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -73,6 +76,8 @@ pub struct M5CoreS3 {
     pub picture: Option<picture::Picture>,
     pub camera_frame_cache: Option<(u32, u32, Arc<Vec<u8>>)>,
     camera_frame_format: u8,
+    software_i2c: I2cBitBang,
+    release_sda: bool,
     pub camera_frames: u64,
 }
 
@@ -108,6 +113,8 @@ impl M5CoreS3 {
             picture: Some(test_pattern(160, 120)),
             camera_frame_cache: None,
             camera_frame_format: 2,
+            software_i2c: I2cBitBang::new(),
+            release_sda: false,
             camera_frames: 0,
         }
     }
@@ -209,6 +216,38 @@ impl BoardModel for M5CoreS3 {
         self.gpio_events
     }
 
+    fn gpio_output_at(
+        &mut self,
+        cycle: VirtualCycle,
+        changes: &[(u8, bool)],
+        enabled: u64,
+        output: u64,
+    ) {
+        self.gpio_changes(changes);
+        let released = |pin| enabled & !output & (1u64 << pin) == 0;
+        if let Some(low) = self
+            .software_i2c
+            .update(released(PIN_I2C_SCL), released(PIN_I2C_SDA))
+        {
+            self.release_sda = !low;
+            if low {
+                self.edges.push(BoardEdge {
+                    cycle,
+                    pin: PIN_I2C_SDA,
+                    level: false,
+                });
+            }
+        }
+    }
+
+    fn released_inputs(&mut self) -> Vec<u8> {
+        if std::mem::take(&mut self.release_sda) {
+            vec![PIN_I2C_SDA]
+        } else {
+            Vec::new()
+        }
+    }
+
     fn spi_transfer(&mut self, host: u8, tx: &[u8], rx_len: usize) -> Vec<u8> {
         if host == 2 {
             for &b in tx {
@@ -283,30 +322,33 @@ impl BoardModel for M5CoreS3 {
             (0x68, "bm8563_alt"),
         ];
         let mut list = Vec::with_capacity(24);
-        for bus in [0u8, 1u8] {
-            // CoreS3 exposes the eWire window over both I2C controllers in the simplest firmware
-            // builds; mirror the peripheral set on bus 1 so either Wire instance finds every chip.
-            list.extend(core_buses.iter().map(|&(addr, name)| {
-                let device: Box<dyn crate::i2c::I2cDevice> = match name {
-                    "aw9523" => Box::new(Aw9523::new(self.aw9523_p1.clone())),
-                    "ft6336" => Box::new(Ft6336::new(self.touch_state.clone())),
-                    "gc0308" => Box::new(Gc0308::new(self.sensor_state.clone())),
-                    "ltr553" => Box::new(Ltr553::new()),
-                    "bmi270" => Box::new(Bmi270::new(self.motion.clone(), self.imu_state.clone())),
-                    "axp2101" => Box::new(Reg8Device::new("axp2101", axp_regs)),
-                    "bm8563" => Box::new(Reg8Device::new(
-                        "bm8563",
-                        &[(0x02, 0x00), (0x03, 0x00), (0x04, 0x12)],
-                    )),
-                    "es7210" => Box::new(Reg8Device::new("es7210", &[(0x3d, 0x72), (0x3e, 0x10)])),
-                    "aw88298" => Box::new(Reg8Device::new("aw88298", &[(0x00, 0x18)])),
-                    "ak09918" => Box::new(Reg8Device::new("ak09918", &[(0x00, 0x48), (0x01, 0x0c)])),
-                    "bmm150" => Box::new(Reg8Device::new("bmm150", &[(0x40, 0x32)])),
-                    "bm8563_alt" => Box::new(Reg8Device::new("bm8563_alt", &[(0x00, 0x00)])),
-                    _ => unreachable!("CoreS3 I2C device table covers every name"),
-                };
-                (bus, addr, device)
-            }));
+        self.software_i2c = I2cBitBang::new();
+        self.release_sda = true;
+        for &(addr, name) in &core_buses {
+            let device: Box<dyn crate::i2c::I2cDevice> = match name {
+                "aw9523" => Box::new(Aw9523::new(self.aw9523_p1.clone())),
+                "ft6336" => Box::new(Ft6336::new(self.touch_state.clone())),
+                "gc0308" => Box::new(Gc0308::new(self.sensor_state.clone())),
+                "ltr553" => Box::new(Ltr553::new()),
+                "bmi270" => Box::new(Bmi270::new(self.motion.clone(), self.imu_state.clone())),
+                "axp2101" => Box::new(Reg8Device::new("axp2101", axp_regs)),
+                "bm8563" => Box::new(Reg8Device::new(
+                    "bm8563",
+                    &[(0x02, 0x00), (0x03, 0x00), (0x04, 0x12)],
+                )),
+                "es7210" => Box::new(Reg8Device::new("es7210", &[(0x3d, 0x72), (0x3e, 0x10)])),
+                "aw88298" => Box::new(Reg8Device::new("aw88298", &[(0x00, 0x18)])),
+                "ak09918" => Box::new(Reg8Device::new("ak09918", &[(0x00, 0x48), (0x01, 0x0c)])),
+                "bmm150" => Box::new(Reg8Device::new("bmm150", &[(0x40, 0x32)])),
+                "bm8563_alt" => Box::new(Reg8Device::new("bm8563_alt", &[(0x00, 0x00)])),
+                _ => unreachable!("CoreS3 I2C device table covers every name"),
+            };
+            let device = SharedI2cDevice::new(device);
+            self.software_i2c.attach(addr, device.clone());
+            // Both hardware controllers and GPIO I2C address the same physical chips.
+            for bus in [0u8, 1u8] {
+                list.push((bus, addr, Box::new(device.clone()) as Box<dyn I2cDevice>));
+            }
         }
         list
     }
@@ -484,7 +526,8 @@ impl BoardModel for M5CoreS3 {
             // CoreS3 demo requests RGB565 (0x6) and sends the framebuffer directly
             // to the LCD; other values give the bus YUYV as esp32-camera would.
             let pixels = if format == 6 {
-                picture::sensor_frame(p, w, h, PixelFormat::Rgb565).unwrap_or_else(|| picture::to_yuyv(p, w, h))
+                picture::sensor_frame(p, w, h, PixelFormat::Rgb565)
+                    .unwrap_or_else(|| picture::to_yuyv(p, w, h))
             } else {
                 picture::to_yuyv(p, w, h)
             };
@@ -504,5 +547,56 @@ impl BoardModel for M5CoreS3 {
             "[m5cores3] LCD: {} frames, {} pixels, madctl={:#x} inv={} on={} bbox={:?}\n[m5cores3] AW9523 P1={:#04x} (reset={}, bl={}), touch_irq={}",
             t.frames, t.pixels_written, t.madctl, t.inverted, t.on, t.bbox(), p1, lcd_reset, backlight, self.touch_irq_level
         )
+    }
+}
+
+#[cfg(test)]
+mod software_i2c_tests {
+    use super::*;
+    use esp_periph::Gpio;
+
+    fn drive(board: &mut M5CoreS3, gpio: &mut Gpio, clock: bool, data: bool) {
+        let enabled = (u64::from(!clock) << PIN_I2C_SCL) | (u64::from(!data) << PIN_I2C_SDA);
+        gpio.write(0x20, enabled as u32);
+        board.gpio_output_at(0, &[], enabled, 0);
+        esp_soc::gpio::drain_board_inputs(board, gpio, &mut None, 0);
+    }
+
+    fn write(board: &mut M5CoreS3, gpio: &mut Gpio, byte: u8) -> bool {
+        for bit in (0..8).rev() {
+            let high = byte & (1 << bit) != 0;
+            drive(board, gpio, false, high);
+            drive(board, gpio, true, high);
+        }
+        drive(board, gpio, false, true);
+        drive(board, gpio, true, true);
+        let ack = !gpio.level(PIN_I2C_SDA);
+        drive(board, gpio, false, true);
+        ack
+    }
+
+    #[test]
+    fn open_drain_gpio_writes_share_the_hardware_i2c_device() {
+        let mut board = M5CoreS3::new();
+        let mut devices = board.i2c_devices();
+        let mut gpio = Gpio::new();
+        drive(&mut board, &mut gpio, true, true);
+        drive(&mut board, &mut gpio, true, false);
+        assert!(write(&mut board, &mut gpio, 0x58 << 1));
+        assert!(write(&mut board, &mut gpio, 0x03));
+        assert!(write(&mut board, &mut gpio, 0x37));
+        drive(&mut board, &mut gpio, false, false);
+        drive(&mut board, &mut gpio, true, false);
+        drive(&mut board, &mut gpio, true, true);
+        assert!(gpio.level(PIN_I2C_SDA));
+        assert_eq!(board.aw9523_p1.load(Ordering::Relaxed), 0x37);
+        for (_, address, device) in &mut devices {
+            if *address == 0x58 {
+                assert!(device.start(false));
+                assert!(device.write(0x03));
+                assert!(device.start(true));
+                assert_eq!(device.read(), 0x37);
+            }
+        }
     }
 }
