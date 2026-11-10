@@ -108,7 +108,12 @@ impl BoardModel for M5Stack {
         rx.fill(0); for (dst, src) in rx.iter_mut().zip(data) { *dst = *src; } rx
     }
     fn input_levels(&self) -> Vec<(u8, bool)> {
-        if self.core2() { vec![(21, true), (22, true), (39, true)] } else { vec![(39, true), (38, true), (37, true)] }
+        // Only the touch IRQ is a genuine board-driven input. SDA/SCL must NOT be
+        // driven here: a static external drive overrides the guest's own output in
+        // the resolved input level, so a guest that verifies its clock/data lines
+        // by reading them back (LGFX software I2C) would see SCL stuck high.
+        // Undriven pins already resolve high via the passive pull default.
+        if self.core2() { vec![(39, true)] } else { vec![(39, true), (38, true), (37, true)] }
     }
     fn named_pin(&self, name: &str) -> Option<u8> {
         if self.core2() { return None; }

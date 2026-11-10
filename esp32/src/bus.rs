@@ -275,6 +275,12 @@ impl SocBus {
             }
             if old_enable != self.periph.gpio.gpio.enable && self.periph.gpio.gpio.changes.is_empty() {
                 self.board.gpio_output_at(self.cycles, &[], self.periph.gpio.gpio.enable, self.periph.gpio.gpio.out);
+                // Board inputs produced by an enable-only change (e.g. an
+                // open-drain line release) must land in the GPIO input levels
+                // within this same write, just as flush_gpio() does for
+                // output-value changes; otherwise a guest that reads a line
+                // back right after toggling its enable sees a stale level.
+                self.deliver_board_inputs();
             }
         }
         if self.periph.spi_exec {

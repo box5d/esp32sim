@@ -286,6 +286,18 @@ impl ClassicGpio {
         oe.then_some(level)
     }
     fn pad_level(&self, pin: usize) -> bool {
+        // Wired-AND for pads driven by the GPIO output itself (matrix signal
+        // 256): a board device holding the pad low (an I2C slave
+        // acknowledging on a bit-banged bus) wins over the SoC driving it
+        // high, exactly as on real hardware. gpio.input already resolves the
+        // external drive against out/enable for such pins, so consult it
+        // when the GPIO drive is high. Pads driven by a peripheral signal
+        // keep the signal level: gpio.input does not track those.
+        if self.driven(pin) == Some(true)
+            && self.gpio.func_out_sel[pin] & 0x1ff == 256
+        {
+            return self.gpio.input & (1 << pin) != 0;
+        }
         self.driven(pin)
             .unwrap_or(self.gpio.input & (1 << pin) != 0)
     }
